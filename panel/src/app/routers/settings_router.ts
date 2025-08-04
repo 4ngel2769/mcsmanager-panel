@@ -17,6 +17,8 @@ import {
 import { ROLE } from "../entity/user";
 import { SAVE_DIR_PATH } from "../service/frontend_layout";
 import FileManager from "../../../../daemon/src/service/system_file";
+import SystemConfig from "../entity/setting";
+import { operationLogger } from "../service/operation_logger";
 
 const router = new Router({ prefix: "/overview" });
 
@@ -29,18 +31,21 @@ router.get("/setting", permission({ level: ROLE.ADMIN }), async (ctx) => {
 // [Top-level Permission]
 // Update panel configuration items
 router.put("/setting", permission({ level: ROLE.ADMIN }), async (ctx) => {
-  const config = ctx.request.body;
+  const config = ctx.request.body as Partial<SystemConfig>;
   if (config && systemConfig) {
     if (config.httpIp != null) systemConfig.httpIp = config.httpIp;
     if (config.httpPort != null) systemConfig.httpPort = config.httpPort;
     if (config.prefix != null) systemConfig.prefix = config.prefix;
-    if (config.reverseProxyMode != null)
+    if (config.reverseProxyMode != null) {
       systemConfig.reverseProxyMode = Boolean(config.reverseProxyMode);
+      ctx.app.proxy = systemConfig.reverseProxyMode;
+    }
     if (config.crossDomain != null) systemConfig.crossDomain = config.crossDomain;
     if (config.gzip != null) systemConfig.gzip = config.gzip;
     if (config.maxCompress != null) systemConfig.maxCompress = config.maxCompress;
     if (config.maxDownload != null) systemConfig.maxDownload = config.maxDownload;
     if (config.zipType != null) systemConfig.zipType = config.zipType;
+    if (config.totpDriftToleranceSteps != null) systemConfig.totpDriftToleranceSteps = config.totpDriftToleranceSteps;
     if (config.loginCheckIp != null) systemConfig.loginCheckIp = config.loginCheckIp;
     if (config.forwardType != null) systemConfig.forwardType = Number(config.forwardType);
     if (config.dataPort != null) systemConfig.dataPort = Number(config.dataPort);
@@ -48,12 +53,21 @@ router.put("/setting", permission({ level: ROLE.ADMIN }), async (ctx) => {
     if (config.canFileManager != null) systemConfig.canFileManager = Boolean(config.canFileManager);
     if (config.allowUsePreset != null) systemConfig.allowUsePreset = Boolean(config.allowUsePreset);
     if (config.presetPackAddr != null) systemConfig.presetPackAddr = String(config.presetPackAddr);
+    if (config.businessMode != null) systemConfig.businessMode = Boolean(config.businessMode);
+    if (config.businessId != null) systemConfig.businessId = String(config.businessId);
+    if (config.allowChangeCmd != null) systemConfig.allowChangeCmd = Boolean(config.allowChangeCmd);
     if (config.language != null) {
       logger.warn($t("TXT_CODE_e29a9317"), config.language);
       systemConfig.language = String(config.language);
       await i18next.changeLanguage(systemConfig.language.toLowerCase());
       remoteService.changeDaemonLanguage(systemConfig.language);
     }
+
+    operationLogger.log("system_config_change", {
+      operator_ip: ctx.ip,
+      operator_name: ctx.session?.["userName"]
+    });
+
     saveSystemConfig(systemConfig);
     ctx.body = "OK";
     return;

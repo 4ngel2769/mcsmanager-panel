@@ -1,6 +1,6 @@
 import Instance from "./instance";
 import os from "os";
-import { IGlobalInstanceConfig, IGlobalInstanceDockerConfig } from "common/global";
+
 interface IActionCommand {
   name: string;
   command: string;
@@ -24,7 +24,9 @@ export default class InstanceConfig implements IGlobalInstanceConfig {
   public fileCode: string = "utf-8";
   public processType: ProcessType = "general";
   public updateCommand: string = "";
+  public runAs: string = "";
   public crlf = os.platform() === "win32" ? 2 : 1; // 1: \n  2: \r\n
+  public category = 0;
 
   // Steam RCON protocol
   public enableRcon = false;
@@ -65,7 +67,8 @@ export default class InstanceConfig implements IGlobalInstanceConfig {
     io: 0,
     network: 0,
     workingDir: "/workspace/",
-    env: []
+    env: [],
+    changeWorkdir: true
   };
 
   public pingConfig = {

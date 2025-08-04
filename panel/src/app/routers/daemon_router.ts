@@ -4,6 +4,7 @@ import validator from "../middleware/validator";
 import RemoteServiceSubsystem from "../service/remote_service";
 import RemoteRequest from "../service/remote_command";
 import { ROLE } from "../entity/user";
+import { operationLogger } from "../service/operation_logger";
 
 const router = new Router({ prefix: "/service" });
 
@@ -37,14 +38,22 @@ router.get(
     const page = Number(ctx.query.page);
     const pageSize = Number(ctx.query.page_size);
     const instanceName = ctx.query.instance_name;
-    const status = String(ctx.query.status);
+    const status = ctx.query.status;
+    const tag = String(ctx.query.tag);
     const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
+    let tagList: string[] = [];
+    try {
+      tagList = JSON.parse(tag);
+    } catch (error) {
+      // ignore
+    }
     const result = await new RemoteRequest(remoteService).request("instance/select", {
       page,
       pageSize,
       condition: {
         instanceName,
-        status
+        status,
+        tag: tagList.length > 0 ? tagList : null
       }
     });
     ctx.body = result;
@@ -110,6 +119,13 @@ router.post(
       prefix: parameter.prefix ?? "",
       remarks: parameter.remarks ?? ""
     });
+
+    operationLogger.log("daemon_create", {
+      operator_ip: ctx.ip,
+      operator_name: ctx.session?.["userName"],
+      daemon_id: instance.uuid
+    });
+
     ctx.body = instance.uuid;
   }
 );
@@ -131,6 +147,11 @@ router.put(
       apiKey: parameter.apiKey,
       remarks: parameter.remarks
     });
+    operationLogger.log("daemon_config_change", {
+      operator_ip: ctx.ip,
+      operator_name: ctx.session?.["userName"],
+      daemon_id: uuid
+    });
     ctx.body = true;
   }
 );
@@ -145,6 +166,11 @@ router.delete(
     const uuid = String(ctx.request.query.uuid);
     if (!RemoteServiceSubsystem.services.has(uuid)) throw new Error("Instance does not exist");
     await RemoteServiceSubsystem.deleteRemoteService(uuid);
+    operationLogger.log("daemon_remove", {
+      operator_ip: ctx.ip,
+      operator_name: ctx.session?.["userName"],
+      daemon_id: uuid
+    });
     ctx.body = true;
   }
 );

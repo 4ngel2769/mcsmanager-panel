@@ -11,28 +11,37 @@ import {
   ControlOutlined,
   DashboardOutlined,
   FieldTimeOutlined,
-  FolderOpenOutlined
+  FolderOpenOutlined,
+  UsergroupDeleteOutlined
 } from "@ant-design/icons-vue";
 import InnerCard from "@/components/InnerCard.vue";
 import { LayoutCardHeight } from "../../config/originLayoutConfig";
 import { useAppStateStore } from "@/stores/useAppStateStore";
 import { useAppRouters } from "@/hooks/useAppRouters";
 import { useLayoutCardTools } from "../../hooks/useCardTools";
-import { useInstanceInfo } from "@/hooks/useInstance";
+import {
+  TYPE_MINECRAFT_JAVA,
+  TYPE_STEAM_SERVER_UNIVERSAL,
+  useInstanceInfo
+} from "@/hooks/useInstance";
 import TermConfig from "./dialogs/TermConfig.vue";
 import EventConfig from "./dialogs/EventConfig.vue";
 import PingConfig from "./dialogs/PingConfig.vue";
 import RconSettings from "./dialogs/RconSettings.vue";
 import InstanceDetail from "./dialogs/InstanceDetail.vue";
-import { GLOBAL_INSTANCE_NAME } from "../../config/const";
+import InstanceFundamentalDetail from "./dialogs/InstanceFundamentalDetail.vue";
 import type { RouteLocationPathRaw } from "vue-router";
 import { TYPE_UNIVERSAL, TYPE_WEB_SHELL } from "../../hooks/useInstance";
+import McPingSettings from "./dialogs/McPingSettings.vue";
+import ResponsiveLayoutGroup from "@/components/ResponsiveLayoutGroup.vue";
 
 const terminalConfigDialog = ref<InstanceType<typeof TermConfig>>();
 const rconSettingsDialog = ref<InstanceType<typeof RconSettings>>();
+const mcSettingsDialog = ref<InstanceType<typeof McPingSettings>>();
 const eventConfigDialog = ref<InstanceType<typeof EventConfig>>();
 const pingConfigDialog = ref<InstanceType<typeof PingConfig>>();
 const instanceDetailsDialog = ref<InstanceType<typeof InstanceDetail>>();
+const instanceFundamentalDetailDialog = ref<InstanceType<typeof InstanceFundamentalDetail>>();
 
 const { toPage: toOtherPager } = useAppRouters();
 
@@ -103,11 +112,21 @@ const btns = computed(() => {
       condition: () => state.settings.canFileManager || isAdmin.value
     },
     {
+      title: t("TXT_CODE_40241d8e"),
+      icon: UsergroupDeleteOutlined,
+      click: () => {
+        mcSettingsDialog.value?.openDialog();
+      },
+      condition: () => instanceInfo.value?.config.type.includes(TYPE_MINECRAFT_JAVA) ?? false
+    },
+    {
       title: t("TXT_CODE_656a85d8"),
       icon: BuildOutlined,
       click: () => {
         rconSettingsDialog.value?.openDialog();
-      }
+      },
+      condition: () =>
+        instanceInfo.value?.config.type.includes(TYPE_STEAM_SERVER_UNIVERSAL) ?? false
     },
     {
       title: t("TXT_CODE_d23631cb"),
@@ -137,7 +156,6 @@ const btns = computed(() => {
         eventConfigDialog.value?.openDialog();
       }
     },
-
     {
       title: t("TXT_CODE_4f34fc28"),
       icon: AppstoreAddOutlined,
@@ -145,15 +163,18 @@ const btns = computed(() => {
       click: () => {
         instanceDetailsDialog.value?.openDialog();
       }
+    },
+    {
+      title: t("TXT_CODE_4f34fc28"),
+      icon: AppstoreAddOutlined,
+      condition: () =>
+        !isAdmin.value &&
+        instanceInfo.value?.config.processType === "docker" &&
+        state.settings.allowChangeCmd,
+      click: () => {
+        instanceFundamentalDetailDialog.value?.openDialog();
+      }
     }
-    // {
-    //   title: t("TXT_CODE_3a406403"),
-    //   icon: CloudServerOutlined,
-    //   condition: () => !isGlobalTerminal.value,
-    //   click: () => {
-    //     pingConfigDialog.value?.openDialog();
-    //   }
-    // },
   ]);
 });
 </script>
@@ -162,36 +183,27 @@ const btns = computed(() => {
   <CardPanel class="containerWrapper" style="height: 100%">
     <template #title>{{ card.title }}</template>
     <template #body>
-      <div class="pb-4">
-        <a-row :gutter="[16, 16]" style="height: 100%">
-          <a-col
-            v-for="btn in btns"
-            :key="btn.title"
-            :span="24"
-            :md="12"
-            :lg="6"
-            style="height: 100%"
+      <ResponsiveLayoutGroup class="function-btns-container" :items="btns">
+        <template #default="{ item }">
+          <InnerCard
+            :style="{ height: LayoutCardHeight.MINI }"
+            :icon="item.icon"
+            @click="item.click"
           >
-            <InnerCard
-              :style="{ height: LayoutCardHeight.MINI }"
-              :icon="btn.icon"
-              @click="btn.click"
-            >
-              <template #title>
-                {{ btn.title }}
-              </template>
-              <template #body>
-                <a href="javascript:void(0);">
-                  <span>
-                    {{ t("TXT_CODE_6c5985ca") }}
-                    <ArrowRightOutlined style="font-size: 12px" />
-                  </span>
-                </a>
-              </template>
-            </InnerCard>
-          </a-col>
-        </a-row>
-      </div>
+            <template #title>
+              {{ item.title }}
+            </template>
+            <template #body>
+              <a href="javascript:void(0);">
+                <span>
+                  {{ t("TXT_CODE_6c5985ca") }}
+                  <ArrowRightOutlined style="font-size: 12px" />
+                </span>
+              </a>
+            </template>
+          </InnerCard>
+        </template>
+      </ResponsiveLayoutGroup>
     </template>
   </CardPanel>
 
@@ -227,6 +239,14 @@ const btns = computed(() => {
     @update="refreshInstanceInfo"
   />
 
+  <InstanceFundamentalDetail
+    ref="instanceFundamentalDetailDialog"
+    :instance-info="instanceInfo"
+    :instance-id="instanceId"
+    :daemon-id="daemonId"
+    @update="refreshInstanceInfo"
+  />
+
   <RconSettings
     ref="rconSettingsDialog"
     :instance-info="instanceInfo"
@@ -234,6 +254,22 @@ const btns = computed(() => {
     :daemon-id="daemonId"
     @update="refreshInstanceInfo"
   />
+
+  <McPingSettings
+    ref="mcSettingsDialog"
+    :instance-info="instanceInfo"
+    :instance-id="instanceId"
+    :daemon-id="daemonId"
+    @update="refreshInstanceInfo"
+  />
 </template>
 
-<style lang="scss" scoped></style>
+<style lang="scss" scoped>
+.function-btns-container {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+</style>

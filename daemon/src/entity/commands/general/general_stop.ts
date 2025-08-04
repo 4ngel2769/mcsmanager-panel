@@ -1,7 +1,6 @@
 import { $t } from "../../../i18n";
 import Instance from "../../instance/instance";
 import InstanceCommand from "../base/command";
-import SendCommand from "../cmd";
 
 export default class GeneralStopCommand extends InstanceCommand {
   constructor() {
@@ -14,18 +13,16 @@ export default class GeneralStopCommand extends InstanceCommand {
       return instance.failure(new Error($t("TXT_CODE_general_stop.notRunning")));
 
     instance.status(Instance.STATUS_STOPPING);
+    instance.ignoreEventTaskOnce();
 
     const stopCommandList = stopCommand.split("\n");
-    for (const stopCommandColumn of stopCommandList) {
-      if (stopCommandColumn.toLocaleLowerCase() == "^c") {
-        instance.process.kill("SIGINT");
-      } else {
-        await instance.exec(new SendCommand(stopCommandColumn));
-      }
+    for (const stopCommand of stopCommandList) {
+      await instance.execPreset("command", stopCommand);
     }
 
     instance.print("\n");
-    instance.println("INFO", $t("TXT_CODE_general_stop.execCmd", { stopCommand }));
+    instance.println("INFO", $t("TXT_CODE_pty_stop.execCmd", { stopCommand: `\n${stopCommand}` }));
+
     const cacheStartCount = instance.startCount;
 
     // If the instance is still in the stopped state after 10 minutes, restore the state

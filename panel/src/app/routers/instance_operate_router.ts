@@ -1,5 +1,5 @@
 import Router from "@koa/router";
-import permission from "../middleware/permission";
+import permission, { verificationFailed } from "../middleware/permission";
 import validator from "../middleware/validator";
 import RemoteServiceSubsystem from "../service/remote_service";
 import RemoteRequest, { RemoteRequestTimeoutError } from "../service/remote_command";
@@ -8,11 +8,12 @@ import { getUserUuid } from "../service/passport_service";
 import { isHaveInstanceByUuid } from "../service/permission_service";
 import { $t } from "../i18n";
 import { isTopPermissionByUuid } from "../service/permission_service";
-import { isEmpty, toText, toBoolean, toNumber } from "common";
+import { isEmpty, toText, toBoolean, toNumber } from "mcsmanager-common";
 import { ROLE } from "../entity/user";
 import axios from "axios";
 import { systemConfig } from "../setting";
-import { IQuickStartTemplate } from "common/global";
+import { checkInstanceAdvancedParams } from "../service/instance_service";
+import { operationLogger } from "../service/operation_logger";
 
 const router = new Router({ prefix: "/protected_instance" });
 
@@ -43,6 +44,13 @@ router.all(
       const result = await new RemoteRequest(remoteService).request("instance/open", {
         instanceUuids: [instanceUuid]
       });
+      operationLogger.log("instance_start", {
+        daemon_id: daemonId,
+        instance_id: instanceUuid,
+        operator_ip: ctx.ip,
+        operator_name: ctx.session?.["userName"],
+        instance_name: result?.instances?.[0]?.nickname
+      });
       ctx.body = result;
     } catch (err) {
       if (err instanceof RemoteRequestTimeoutError) {
@@ -67,6 +75,13 @@ router.all(
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
       const result = await new RemoteRequest(remoteService).request("instance/stop", {
         instanceUuids: [instanceUuid]
+      });
+      operationLogger.log("instance_stop", {
+        daemon_id: daemonId,
+        instance_id: instanceUuid,
+        operator_ip: ctx.ip,
+        operator_name: ctx.session?.["userName"],
+        instance_name: result?.instances?.[0]?.nickname
       });
       ctx.body = result;
     } catch (err) {
@@ -113,6 +128,13 @@ router.all(
       const result = await new RemoteRequest(remoteService).request("instance/restart", {
         instanceUuids: [instanceUuid]
       });
+      operationLogger.log("instance_restart", {
+        daemon_id: daemonId,
+        instance_id: instanceUuid,
+        operator_ip: ctx.ip,
+        operator_name: ctx.session?.["userName"],
+        instance_name: result?.instances?.[0]?.nickname
+      });
       ctx.body = result;
     } catch (err) {
       ctx.body = err;
@@ -133,6 +155,13 @@ router.all(
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
       const result = await new RemoteRequest(remoteService).request("instance/kill", {
         instanceUuids: [instanceUuid]
+      });
+      operationLogger.warning("instance_kill", {
+        daemon_id: daemonId,
+        instance_id: instanceUuid,
+        operator_ip: ctx.ip,
+        operator_name: ctx.session?.["userName"],
+        instance_name: result?.instances?.[0]?.nickname
       });
       ctx.body = result;
     } catch (err) {
@@ -370,6 +399,20 @@ router.put(
       const instanceUuid = toText(ctx.query.uuid);
       const config = ctx.request.body;
 
+      let instanceTags: string[] | null = null;
+
+      if (config.tag instanceof Array && isTopPermissionByUuid(getUserUuid(ctx))) {
+        instanceTags = (config.tag as any[]).map((tag: any) => {
+          const tmp = String(tag).trim();
+          if (tmp.length > 9) throw new Error($t("TXT_CODE_6d8bc58d"));
+          return tmp;
+        });
+        if (instanceTags.length > 6) {
+          throw new Error($t("TXT_CODE_dc9fb6ce"));
+        }
+        instanceTags = instanceTags!.sort((a, b) => (a > b ? 1 : -1));
+      }
+
       // Steam Rcon configuration
       const rconIp = toText(config.rconIp);
       const rconPort = toNumber(config.rconPort);
@@ -406,9 +449,14 @@ router.put(
       const crlf = !isEmpty(config.crlf) ? toNumber(config?.crlf) : null;
       const oe = !isEmpty(config.oe) ? toText(config?.oe) : null;
       const ie = !isEmpty(config.ie) ? toText(config?.ie) : null;
+      const fileCode = toText(config.fileCode);
       const stopCommand = config.stopCommand ? toText(config.stopCommand) : null;
-
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId || "");
+      const isTopPermission = isTopPermissionByUuid(getUserUuid(ctx));
+
+      let advancedConfig = {};
+      advancedConfig = checkInstanceAdvancedParams(config, isTopPermission);
+
       const result = await new RemoteRequest(remoteService).request("instance/update", {
         instanceUuid,
         config: {
@@ -423,7 +471,10 @@ router.put(
           rconIp,
           rconPort,
           rconPassword,
-          enableRcon
+          enableRcon,
+          tag: instanceTags,
+          fileCode,
+          ...advancedConfig
         }
       });
       ctx.body = result;

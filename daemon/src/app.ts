@@ -1,4 +1,3 @@
-import "module-alias/register";
 import http from "http";
 import fs from "fs-extra";
 import versionAdapter from "./service/version_adapter";
@@ -17,7 +16,8 @@ import InstanceSubsystem from "./service/system_instance";
 import "./service/async_task_service";
 import "./service/async_task_service/quick_install";
 import "./service/system_visual_data";
-import { removeTrail } from "common";
+import { removeTrail } from "mcsmanager-common";
+import uploadManager from "./service/upload_manager";
 
 initVersionManager();
 const VERSION = getVersion();
@@ -114,6 +114,10 @@ io.on("connection", (socket: Socket) => {
   protocol.addGlobalSocket(socket);
   router.navigation(socket);
 
+  socket.on("error", (err) => {
+    logger.error("Connection(): Socket.io Error:", err);
+  });
+
   socket.on("disconnect", () => {
     protocol.delGlobalSocket(socket);
     for (const name of socket.eventNames()) socket.removeAllListeners(name);
@@ -144,6 +148,7 @@ async function processExit() {
     console.log("");
     logger.warn("Program received EXIT command.");
     await InstanceSubsystem.exit();
+    await uploadManager.exit();
     logger.info("Exit.");
   } catch (err) {
     logger.error("ERROR:", err);

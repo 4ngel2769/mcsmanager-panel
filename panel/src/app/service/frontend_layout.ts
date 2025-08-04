@@ -1,8 +1,7 @@
 import { v4 } from "uuid";
-import { IPageLayoutConfig } from "../../../../common/global";
 import { $t as t } from "../i18n";
 import storage from "../common/system_storage";
-import { GlobalVariable } from "common";
+import { GlobalVariable } from "mcsmanager-common";
 import path from "path";
 import fs from "fs-extra";
 
@@ -156,9 +155,18 @@ function getDefaultFrontendLayoutConfig(): IPageLayoutConfig[] {
         {
           id: getRandomId(),
           meta: {},
+          type: "OperationLogCard",
+          title: t("TXT_CODE_f6a33629"),
+          width: 4,
+          description: t("TXT_CODE_9e8c176e"),
+          height: LayoutCardHeight.MEDIUM
+        },
+        {
+          id: getRandomId(),
+          meta: {},
           type: "NodeOverview",
           title: t("TXT_CODE_bfb50126"),
-          width: 12,
+          width: 8,
           description: t("TXT_CODE_55ade942"),
           height: LayoutCardHeight.MEDIUM
         }
@@ -537,6 +545,61 @@ function getDefaultFrontendLayoutConfig(): IPageLayoutConfig[] {
           width: 4,
           height: LayoutCardHeight.AUTO,
           disableDelete: true
+        }
+      ]
+    },
+    {
+      page: "/shop",
+      items: [
+        {
+          id: getRandomId(),
+          meta: {},
+          type: "EmptyCard",
+          title: "",
+          width: 2,
+          height: LayoutCardHeight.MINI
+        },
+        {
+          id: getRandomId(),
+          meta: {},
+          type: "ShopInfoCard",
+          title: t("TXT_CODE_4770de17"),
+          width: 8,
+          height: LayoutCardHeight.SMALL,
+          disableDelete: true
+        },
+        {
+          id: getRandomId(),
+          meta: {},
+          type: "EmptyCard",
+          title: "",
+          width: 2,
+          height: LayoutCardHeight.MINI
+        },
+        {
+          id: getRandomId(),
+          meta: {},
+          type: "EmptyCard",
+          title: "",
+          width: 2,
+          height: LayoutCardHeight.MINI
+        },
+        {
+          id: getRandomId(),
+          meta: {},
+          type: "ShelvesCard",
+          title: t("TXT_CODE_381f8f22"),
+          width: 8,
+          height: LayoutCardHeight.LARGE,
+          disableDelete: true
+        },
+        {
+          id: getRandomId(),
+          meta: {},
+          type: "EmptyCard",
+          title: "",
+          width: 2,
+          height: LayoutCardHeight.MINI
         }
       ]
     },

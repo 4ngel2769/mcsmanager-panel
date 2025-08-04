@@ -2,7 +2,7 @@ import { io, Socket, SocketOptions, ManagerOptions } from "socket.io-client";
 import { RemoteServiceConfig } from "./entity_interface";
 import { logger } from "../service/log";
 import RemoteRequest from "../service/remote_command";
-import { InstanceStreamListener, removeTrail } from "common";
+import { InstanceStreamListener, removeTrail } from "mcsmanager-common";
 import { $t, i18next } from "../i18n";
 
 export default class RemoteService {
@@ -14,10 +14,15 @@ export default class RemoteService {
   public socket?: Socket;
   public readonly instanceStream = new InstanceStreamListener();
   public config: RemoteServiceConfig;
+  public realUrl: string = "";
 
   constructor(uuid: string, config: RemoteServiceConfig) {
     this.uuid = uuid;
     this.config = config;
+  }
+
+  private getDaemonInfo() {
+    return `Name: ${this.config.remarks} | ID: ${this.uuid} | URL: ${this.realUrl}`;
   }
 
   public connect(connectOpts?: Partial<SocketOptions & ManagerOptions>) {
@@ -27,7 +32,9 @@ export default class RemoteService {
     if (this.config.ip.indexOf("wss://") === 0 || this.config.ip.indexOf("ws://") === 0) {
       addr = `${this.config.ip}:${this.config.port}`;
     }
-    const daemonInfo = `[${this.uuid}] [${addr}/${this.config.remarks}]`;
+    this.realUrl = addr;
+
+    const daemonInfo = this.getDaemonInfo();
 
     if (this.available) {
       logger.info(`${$t("TXT_CODE_daemonInfo.resetConnect")}:${daemonInfo}`);
@@ -41,7 +48,7 @@ export default class RemoteService {
     }
 
     logger.info(`${$t("TXT_CODE_daemonInfo.tryConnect")}:${daemonInfo}`);
-    this.socket = io(addr, {
+    this.socket = io(this.realUrl, {
       ...this.config.connectOpts,
       path: removeTrail(this.config.prefix, "/") + "/socket.io"
     });
@@ -77,7 +84,7 @@ export default class RemoteService {
   // Generally, there is no need to execute it manually.
   public async auth(key?: string) {
     if (key) this.config.apiKey = key;
-    const daemonInfo = `[${this.uuid}] [${this.config.ip}:${this.config.port}]`;
+    const daemonInfo = this.getDaemonInfo();
     try {
       const res = await new RemoteRequest(this).request("auth", this.config.apiKey, 5000, true);
       if (res === true) {
@@ -111,7 +118,7 @@ export default class RemoteService {
 
   disconnect() {
     if (this.socket) {
-      const daemonInfo = `[${this.uuid}] [${this.config.ip}:${this.config.port}]`;
+      const daemonInfo = this.getDaemonInfo();
       logger.info($t("TXT_CODE_daemonInfo.closed", { v: daemonInfo }));
       this.socket.removeAllListeners();
       this.socket.disconnect();

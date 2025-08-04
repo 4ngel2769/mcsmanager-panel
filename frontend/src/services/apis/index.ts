@@ -1,7 +1,6 @@
 import { useDefineApi } from "@/stores/useDefineApi";
 import type { InstanceDetail, NodeStatus, PanelStatus, Settings } from "@/types";
 import type { BaseUserInfo, LoginUserInfo, EditUserInfo, UserInstance } from "@/types/user";
-import type { IPanelOverviewResponse } from "../../../../common/global";
 
 export const panelInstall = useDefineApi<
   {
@@ -91,7 +90,8 @@ export const remoteInstances = useDefineApi<
       page: number;
       page_size: number;
       instance_name?: string;
-      status: string;
+      status?: string;
+      tag?: string;
     };
   },
   {
@@ -99,6 +99,7 @@ export const remoteInstances = useDefineApi<
     page: 1;
     pageSize: 10;
     data: InstanceDetail[];
+    allTags: string[];
   }
 >({
   url: "/api/service/remote_service_instances"
@@ -152,7 +153,9 @@ export const addUser = useDefineApi<
       permission: number;
     };
   },
-  boolean
+  {
+    uuid: string;
+  }
 >({
   url: "/api/auth",
   method: "POST"

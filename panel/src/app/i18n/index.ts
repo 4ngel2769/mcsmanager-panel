@@ -12,6 +12,8 @@ import fr_FR from "@languages/fr_FR.json";
 import ru_RU from "@languages/ru_RU.json";
 import ko_KR from "@languages/ko_KR.json";
 import de_DE from "@languages/de_DE.json";
+import pt_BR from "@languages/pt_BR.json";
+import th_TH from "@languages/th_TH.json";
 
 i18next.init({
   interpolation: {
@@ -46,6 +48,12 @@ i18next.init({
     },
     de_de: {
       translation: de_DE
+    },
+    pt_br: {
+      translation: pt_BR
+    },
+    th_TH: {
+      translation: th_TH
     }
   }
 });

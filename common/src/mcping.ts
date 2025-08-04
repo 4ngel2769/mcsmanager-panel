@@ -1,76 +1,94 @@
 // Using SLT (Server List Ping) provided by Minecraft.
-// Since it is part of the protocol it is always enabled contrary to Query
-// More information at: https://wiki.vg/Server_List_Ping#Response
-// Github: https://github.com/Vaksty/mcping
+// https://wiki.vg/Server_List_Ping#Response
 
 import net from "net";
 
-function formatMotd(motd: any) {
-  let noSpaces = motd.replace(/\u0000/g, "");
-  Buffer.from(noSpaces);
-  // let noColor = noSpaces.toString().replace(/[^\x00-\x7F]/g, '');
-  // console.log(Buffer.from(motd, 'utf8').toString('hex'));
-  // console.log(noColor);
+export interface MinecraftPingResponse {
+  host: string;
+  port: number;
+  online: boolean;
+  version: string;
+  motd: string;
+  current_players: number;
+  max_players: number;
+  latency: number;
 }
 
-export default class MCServStatus {
+export default class PingMinecraftServer {
   public port: number;
   public host: string;
-  public status: any;
+  public status: MinecraftPingResponse;
+  public client?: net.Socket;
 
   constructor(port: number, host: string) {
     this.port = port;
     this.host = host;
     this.status = {
-      online: null,
-      version: null,
-      motd: null,
-      current_players: null,
-      max_players: null,
-      latency: null
+      online: false,
+      host,
+      port,
+      version: "",
+      motd: "",
+      current_players: 0,
+      max_players: 0,
+      latency: 0
     };
   }
 
   getStatus() {
-    return new Promise((resolve, reject) => {
+    return new Promise<MinecraftPingResponse>((resolve, reject) => {
       var start_time = new Date().getTime();
-      const client = net.connect(this.port, this.host, () => {
-        this.status.latency = Math.round(new Date().getTime() - start_time);
-        // 0xFE packet identifier for a server list ping
-        // 0x01 server list ping's payload (always 1)
-        let data = Buffer.from([0xfe, 0x01]);
-        client.write(data);
-      });
+      this.client = net.connect(
+        {
+          host: this.host,
+          port: this.port,
+          timeout: 1000 * 15
+        },
+        () => {
+          this.status.latency = Math.round(new Date().getTime() - start_time);
+          // 0xFE packet identifier for a server list ping
+          // 0x01 server list ping's payload (always 1)
+          let data = Buffer.from([0xfe, 0x01]);
+          this?.client?.write(data);
+        }
+      );
 
       // The client can also receive data from the server by reading from its socket.
-      client.on("data", (response: any) => {
+      this?.client?.on("data", (response: any) => {
         // Check the readme for a simple explanation
         var server_info = response.toString().split("\x00\x00");
 
         this.status = {
+          online: true,
           host: this.host,
           port: this.port,
-          status: true,
           version: server_info[2].replace(/\u0000/g, ""),
           motd: server_info[3].replace(/\u0000/g, ""),
           current_players: server_info[4].replace(/\u0000/g, ""),
           max_players: server_info[5].replace(/\u0000/g, ""),
           latency: this.status.latency
         };
-        formatMotd(server_info[3]);
+
         // Request an end to the connection after the data has been received.
-        client.end();
+        this?.client?.end();
         resolve(this.status);
+        this.destroy();
       });
 
-      client.on("end", () => {
-        // console.log('Requested an end to the TCP connection');
+      this?.client?.on("end", () => {
+        resolve(this.status);
+        this.destroy();
       });
 
-      client.on("error", (err: any) => {
+      this?.client?.on("error", (err: any) => {
         reject(err);
+        this.destroy();
       });
     });
+  }
+
+  private destroy() {
+    this.client?.removeAllListeners();
   }
 
   async asyncStatus() {
@@ -78,3 +96,36 @@ export default class MCServStatus {
     return status;
   }
 }
+
+// async function test() {
+//   try {
+//     var status = await new MCServStatus(25565, "localhost").asyncStatus();
+//     // console.log("status: ", status);
+//   } catch (error) {
+//     console.error("错误:", error);
+//   }
+//   const memoryUsage = process.memoryUsage();
+//   console.log(
+//     "RSS (Resident Set Size):",
+//     (memoryUsage.rss / 1024 / 1024).toFixed(2),
+//     "MB",
+//     "Heap Total:",
+//     (memoryUsage.heapTotal / 1024 / 1024).toFixed(2),
+//     "MB",
+//     "Heap Used:",
+//     (memoryUsage.heapUsed / 1024 / 1024).toFixed(2),
+//     "MB",
+//     "External:",
+//     (memoryUsage.external / 1024 / 1024).toFixed(2),
+//     "MB"
+//   );
+//   // console.log("Heap Total:", (memoryUsage.heapTotal / 1024 / 1024).toFixed(2), "MB");
+//   // console.log("External:", (memoryUsage.external / 1024 / 1024).toFixed(2), "MB");
+//   // console.log("Heap Used:", (memoryUsage.heapUsed / 1024 / 1024).toFixed(2), "MB");
+// }
+
+// for (let index = 0; index < 10000; index++) {
+//   test();
+//   // @ts-ignore
+//   // global.gc();
+// }

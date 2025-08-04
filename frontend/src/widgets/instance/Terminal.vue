@@ -12,7 +12,10 @@ import {
   RedoOutlined,
   LaptopOutlined,
   InteractionOutlined,
-  LoadingOutlined
+  LoadingOutlined,
+  MoneyCollectOutlined,
+  ArrowUpOutlined,
+  BlockOutlined
 } from "@ant-design/icons-vue";
 import { CheckCircleOutlined, InfoCircleOutlined } from "@ant-design/icons-vue";
 import { arrayFilter } from "../../tools/array";
@@ -34,6 +37,12 @@ import { reportErrorMsg } from "@/tools/validator";
 import TerminalCore from "@/components/TerminalCore.vue";
 import Reinstall from "./dialogs/Reinstall.vue";
 import { useAppStateStore } from "@/stores/useAppStateStore";
+import { INSTANCE_TYPE_TRANSLATION, verifyEULA } from "@/hooks/useInstance";
+import { useMountComponent } from "@/hooks/useMountComponent";
+import UseRedeemDialog from "@/components/fc/UseRedeemDialog.vue";
+import TerminalTags from "@/components/TerminalTags.vue";
+import type { TagInfo } from "../../components/interface";
+import prettyBytes from "pretty-bytes";
 
 const props = defineProps<{
   card: LayoutCard;
@@ -55,7 +64,10 @@ const reinstallDialog = ref<InstanceType<typeof Reinstall>>();
 const instanceId = getMetaOrRouteValue("instanceId");
 const daemonId = getMetaOrRouteValue("daemonId");
 const viewType = getMetaOrRouteValue("viewType", false);
-const innerTerminalType = viewType === "inner";
+const innerTerminalType = computed(() => props.card.width === 12 && viewType === "inner");
+const instanceTypeText = computed(
+  () => INSTANCE_TYPE_TRANSLATION[instanceInfo.value?.config.type ?? -1]
+);
 
 const updateCmd = computed(() => (instanceInfo.value?.config.updateCommand ? true : false));
 const instanceStatusText = computed(() => INSTANCE_STATUS[instanceInfo.value?.status ?? -1]);
@@ -68,10 +80,16 @@ const quickOperations = computed(() =>
       type: "default",
       click: async () => {
         try {
+          const flag = await verifyEULA(
+            instanceId ?? "",
+            daemonId ?? "",
+            instanceInfo.value?.config.type ?? ""
+          );
+          if (!flag) return;
           await openInstance().execute({
             params: {
-              uuid: instanceId || "",
-              daemonId: daemonId || ""
+              uuid: instanceId ?? "",
+              daemonId: daemonId ?? ""
             }
           });
         } catch (error: any) {
@@ -175,6 +193,18 @@ const instanceOperations = computed(() =>
         isStopped.value &&
         (state.settings.allowUsePreset || isAdmin.value) &&
         !isGlobalTerminal.value
+    },
+    {
+      title: t("TXT_CODE_f77093c8"),
+      icon: MoneyCollectOutlined,
+      noConfirm: true,
+      click: () => {
+        useMountComponent({
+          instanceId: instanceId
+        }).mount(UseRedeemDialog);
+      },
+      props: {},
+      condition: () => state.settings.businessMode
     }
   ])
 );
@@ -185,6 +215,33 @@ const getInstanceName = computed(() => {
   } else {
     return instanceInfo.value?.config.nickname;
   }
+});
+
+const terminalTopTags = computed<TagInfo[]>(() => {
+  const info = instanceInfo.value?.info;
+  if (!info || isStopped.value) return [];
+  return arrayFilter<TagInfo>([
+    {
+      label: t("TXT_CODE_b862a158"),
+      value: `${parseInt(String(info.cpuUsage))}%`,
+      condition: () => info.cpuUsage != null,
+      color: info?.cpuUsage! > 60 ? "warning" : "default",
+      icon: BlockOutlined
+    },
+    {
+      label: t("TXT_CODE_593ee330"),
+      value: info.memoryLimit
+        ? `${prettyBytes(info.memoryUsage || 0)}/${prettyBytes(info.memoryLimit)}`
+        : prettyBytes(info.memoryUsage || 0),
+      condition: () => info.memoryUsage != null
+    },
+    {
+      label: t("TXT_CODE_50daec4"),
+      value: `↓${prettyBytes(info.rxBytes || 0)}/s ↑${prettyBytes(info.txBytes || 0)}/s`,
+      condition: () => info.rxBytes != null || info.txBytes != null,
+      icon: ArrowUpOutlined
+    }
+  ]);
 });
 
 onMounted(async () => {
@@ -214,18 +271,22 @@ onMounted(async () => {
               <span class="ml-6"> {{ getInstanceName }} </span>
             </a-typography-title>
             <a-typography-paragraph v-if="!isPhone" class="mb-0 ml-4">
-              <span v-if="isRunning" class="color-success">
-                <CheckCircleOutlined />
-                {{ instanceStatusText }}
+              <span class="ml-6">
+                <a-tag v-if="isRunning" color="green">
+                  <CheckCircleOutlined />
+                  {{ instanceStatusText }}
+                </a-tag>
+                <a-tag v-else-if="isBuys" color="red">
+                  <LoadingOutlined />
+                  {{ instanceStatusText }}
+                </a-tag>
+                <a-tag v-else>
+                  <InfoCircleOutlined />
+                  {{ instanceStatusText }}
+                </a-tag>
               </span>
-              <span v-else-if="isBuys">
-                <LoadingOutlined />
-                {{ instanceStatusText }}
-              </span>
-              <span v-else class="color-info">
-                <InfoCircleOutlined />
-                {{ instanceStatusText }}
-              </span>
+
+              <a-tag color="purple"> {{ instanceTypeText }} </a-tag>
 
               <span
                 v-if="instanceInfo?.watcher && instanceInfo?.watcher > 1 && !isPhone"
@@ -233,7 +294,7 @@ onMounted(async () => {
               >
                 <a-tooltip>
                   <template #title>
-                    {{ $t("TXT_CODE_4a37ec9c") }}
+                    {{ t("TXT_CODE_4a37ec9c") }}
                   </template>
                   <LaptopOutlined />
                 </a-tooltip>
@@ -291,6 +352,9 @@ onMounted(async () => {
         </template>
       </BetweenMenus>
     </div>
+    <div class="mb-10 justify-end">
+      <TerminalTags :tags="terminalTopTags" />
+    </div>
     <TerminalCore
       v-if="instanceId && daemonId"
       :instance-id="instanceId"
@@ -304,6 +368,21 @@ onMounted(async () => {
     <template #title>
       <CloudServerOutlined />
       <span class="ml-8"> {{ getInstanceName }} </span>
+      <span class="ml-8">
+        <a-tag v-if="isRunning" color="green">
+          <CheckCircleOutlined />
+          {{ instanceStatusText }}
+        </a-tag>
+        <a-tag v-else-if="isBuys" color="red">
+          <LoadingOutlined />
+          {{ instanceStatusText }}
+        </a-tag>
+        <a-tag v-else>
+          <InfoCircleOutlined />
+          {{ instanceStatusText }}
+        </a-tag>
+        <a-tag color="purple"> {{ instanceTypeText }} </a-tag>
+      </span>
     </template>
     <template #operator>
       <span
@@ -330,6 +409,9 @@ onMounted(async () => {
       </a-dropdown>
     </template>
     <template #body>
+      <div class="mb-6">
+        <TerminalTags :tags="terminalTopTags" />
+      </div>
       <TerminalCore
         v-if="instanceId && daemonId"
         :instance-id="instanceId"

@@ -11,7 +11,6 @@ import { getFileManager } from "../file_router_service";
 import { IAsyncTaskJSON, TaskCenter, AsyncTask } from "./index";
 import logger from "../log";
 import { t } from "i18next";
-import type { IJsonData } from "common/global";
 import { InstanceUpdateAction } from "../instance_update_action";
 
 export class QuickInstallTask extends AsyncTask {
@@ -57,7 +56,9 @@ export class QuickInstallTask extends AsyncTask {
           const url = new URL(this.targetLink);
           downloadFileName = url.pathname.split("/").pop() || `application${this.extName}`;
         }
-        this.filePath = path.normalize(path.join(this.instance.config.cwd, downloadFileName));
+        this.filePath = path.normalize(
+          path.join(this.instance.absoluteCwdPath(), downloadFileName)
+        );
         this.writeStream = fs.createWriteStream(this.filePath);
         const response = await axios<Readable>({
           url: this.targetLink,
@@ -109,7 +110,7 @@ export class QuickInstallTask extends AsyncTask {
         let startCommand = this.instance.config.startCommand;
         const ENV_MAP: IJsonData = {
           java: "java",
-          cwd: this.instance.config.cwd,
+          cwd: this.instance.absoluteCwdPath(),
           rconIp: this.instance.config.rconIp || "localhost",
           rconPort: String(this.instance.config.rconPort),
           rconPassword: this.instance.config.rconPassword,

@@ -11,7 +11,9 @@ import { systemConfig } from "../setting";
 import { getUserUuid } from "../service/passport_service";
 import { isHaveInstanceByUuid, isTopPermissionByUuid } from "../service/permission_service";
 import { ROLE } from "../entity/user";
-import { removeTrail } from "common";
+import { removeTrail } from "mcsmanager-common";
+import userSystem from "../service/user_service";
+import { operationLogger } from "../service/operation_logger";
 
 const router = new Router({ prefix: "/instance" });
 
@@ -44,6 +46,7 @@ router.post(
   "/",
   permission({ level: ROLE.ADMIN }),
   validator({ query: { daemonId: String } }),
+
   async (ctx) => {
     try {
       const daemonId = String(ctx.query.daemonId);
@@ -51,6 +54,13 @@ router.post(
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
       const result = await new RemoteRequest(remoteService).request("instance/new", config);
       ctx.body = result;
+      operationLogger.log("instance_create", {
+        daemon_id: daemonId,
+        instance_id: result.instanceUuid,
+        operator_ip: ctx.ip,
+        operator_name: ctx.session?.["userName"],
+        instance_name: result.nickname
+      });
     } catch (err) {
       ctx.body = err;
     }
@@ -72,6 +82,13 @@ router.post(
       const result = await new RemoteRequest(remoteService).request("instance/new", config);
       const newInstanceUuid = result.instanceUuid;
       if (!newInstanceUuid) throw new Error($t("TXT_CODE_router.instance.createError"));
+      operationLogger.log("instance_create", {
+        daemon_id: daemonId,
+        instance_id: newInstanceUuid,
+        operator_ip: ctx.ip,
+        operator_name: ctx.session?.["userName"],
+        instance_name: result.nickname
+      });
       // Send a cross-end file upload task to the daemon
       const addr = `${remoteService?.config.ip}:${remoteService?.config.port}${
         remoteService?.config.prefix ? removeTrail(remoteService.config.prefix, "/") : ""
@@ -112,6 +129,13 @@ router.put(
         instanceUuid,
         config
       });
+      operationLogger.log("instance_config_change", {
+        daemon_id: daemonId,
+        instance_id: instanceUuid,
+        operator_ip: ctx.ip,
+        operator_name: ctx.session?.["userName"],
+        instance_name: config.nickname
+      });
       ctx.body = result;
     } catch (err) {
       ctx.body = err;
@@ -131,9 +155,28 @@ router.delete(
       const instanceUuids = ctx.request.body.uuids;
       const deleteFile = ctx.request.body.deleteFile;
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
+      if (!instanceUuids || !Array.isArray(instanceUuids))
+        throw new Error("Type error, invalid uuids or daemonId");
+      const instanceIds = instanceUuids.map((uuid: string) => {
+        return { instanceUuid: uuid, daemonId };
+      });
+      userSystem.deleteUserInstances(null, instanceIds, true);
       const result = await new RemoteRequest(remoteService).request("instance/delete", {
         instanceUuids,
         deleteFile
+      });
+      result.instances.forEach((e: { instanceUuid: string; nickname: string }) => {
+        operationLogger.log(
+          "instance_delete",
+          {
+            daemon_id: daemonId,
+            instance_id: e.instanceUuid,
+            operator_ip: ctx.ip,
+            operator_name: ctx.session?.["userName"],
+            instance_name: e.nickname
+          },
+          "error"
+        );
       });
       ctx.body = result;
     } catch (err) {
@@ -152,6 +195,17 @@ router.post("/multi_open", permission({ level: ROLE.ADMIN }), async (ctx) => {
       new RemoteRequest(remoteService)
         .request("instance/open", {
           instanceUuids
+        })
+        .then((e) => {
+          e.instances.forEach((instance: { instanceUuid: string; nickname: string }) => {
+            operationLogger.log("instance_start", {
+              daemon_id: daemonId,
+              instance_id: instance.instanceUuid,
+              operator_ip: ctx.ip,
+              operator_name: ctx.session?.["userName"],
+              instance_name: instance.nickname
+            });
+          });
         })
         .catch(() => {});
     });
@@ -172,6 +226,17 @@ router.post("/multi_stop", permission({ level: ROLE.ADMIN }), async (ctx) => {
         .request("instance/stop", {
           instanceUuids
         })
+        .then((e) => {
+          e.instances.forEach((instance: { instanceUuid: string; nickname: string }) => {
+            operationLogger.log("instance_stop", {
+              daemon_id: daemonId,
+              instance_id: instance.instanceUuid,
+              operator_ip: ctx.ip,
+              operator_name: ctx.session?.["userName"],
+              instance_name: instance.nickname
+            });
+          });
+        })
         .catch(() => {});
     });
     ctx.body = true;
@@ -189,6 +254,45 @@ router.post("/multi_kill", permission({ level: ROLE.ADMIN }), async (ctx) => {
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
       new RemoteRequest(remoteService)
         .request("instance/kill", { instanceUuids })
+        .then((e) => {
+          e.instances.forEach((instance: { instanceUuid: string; nickname: string }) => {
+            operationLogger.warning("instance_kill", {
+              daemon_id: daemonId,
+              instance_id: instance.instanceUuid,
+              operator_ip: ctx.ip,
+              operator_name: ctx.session?.["userName"],
+              instance_name: instance.nickname
+            });
+          });
+        })
+        .catch((err) => {});
+    });
+    ctx.body = true;
+  } catch (err) {
+    ctx.body = err;
+  }
+});
+
+// [Top-level Permission]
+// restart instance routing in batches
+router.post("/multi_restart", permission({ level: ROLE.ADMIN }), async (ctx) => {
+  try {
+    const instances = ctx.request.body;
+    multiOperationForwarding(instances, async (daemonId: string, instanceUuids: string[]) => {
+      const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
+      new RemoteRequest(remoteService)
+        .request("instance/restart", { instanceUuids })
+        .then((e) => {
+          e.instances.forEach((instance: { instanceUuid: string; nickname: string }) => {
+            operationLogger.log("instance_restart", {
+              daemon_id: daemonId,
+              instance_id: instance.instanceUuid,
+              operator_ip: ctx.ip,
+              operator_name: ctx.session?.["userName"],
+              instance_name: instance.nickname
+            });
+          });
+        })
         .catch((err) => {});
     });
     ctx.body = true;

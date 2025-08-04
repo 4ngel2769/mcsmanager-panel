@@ -3,8 +3,6 @@
 import { createI18n } from "vue-i18n";
 import { updateSettings } from "@/services/apis";
 
-import enUS from "@languages/en_US.json";
-
 // DO NOT I18N
 // If you want to add the language of your own country, you need to add the code here.
 export const SUPPORTED_LANGS = [
@@ -21,28 +19,36 @@ export const SUPPORTED_LANGS = [
     value: `zh_tw`
   },
   {
-    label: `Français (Google Translation)`,
-    value: `fr_fr`
-  },
-  {
-    label: `Español (Google Translation)`,
-    value: `es_es`
-  },
-  {
-    label: `Deutsch (Google Translation)`,
-    value: `de_de`
-  },
-  {
-    label: `Русский (Google Translation)`,
-    value: `ru_ru`
-  },
-  {
-    label: `日本語 (Google Translation)`,
+    label: `日本語`,
     value: `ja_jp`
   },
   {
-    label: `한국어 (Google Translation)`,
+    label: `한국어`,
     value: `ko_kr`
+  },
+  {
+    label: `Русский`,
+    value: `ru_ru`
+  },
+  {
+    label: `Português Brasileiro`,
+    value: `pt_br`
+  },
+  {
+    label: `Français`,
+    value: `fr_fr`
+  },
+  {
+    label: `Español`,
+    value: `es_es`
+  },
+  {
+    label: `Deutsch`,
+    value: `de_de`
+  },
+  {
+    label: `Thai`,
+    value: `th_th`
   }
 ];
 
@@ -69,16 +75,10 @@ export async function initInstallPageFlow(language: string) {
 async function initI18n(lang: string) {
   lang = toStandardLang(lang);
 
-  const messages: Record<string, any> = {
-    en_us: enUS
-  };
+  const messages: Record<string, any> = {};
   const langFiles = import.meta.glob("../../../languages/*.json");
   for (const path in langFiles) {
-    if (
-      lang !== "en_us" &&
-      toStandardLang(path).includes(lang) &&
-      typeof langFiles[path] === "function"
-    ) {
+    if (toStandardLang(path).includes(lang) && typeof langFiles[path] === "function") {
       messages[lang] = await langFiles[path]();
     }
   }
@@ -129,12 +129,14 @@ const isTW = () => {
   return getCurrentLang() === "zh_tw";
 };
 
-const $t = (...args: string[]): string => {
+const isPT = () => {
+  return getCurrentLang() === "pt_br";
+};
+
+const $t = (...args: any[]): string => {
   return (i18n.global.t as Function)(...args);
 };
-const t = (...args: string[]): string => {
-  return (i18n.global.t as Function)(...args);
-};
+const t = $t;
 
 (window as any).setLang = setLanguage;
 
@@ -148,5 +150,6 @@ export {
   isCN,
   isEN,
   isTW,
+  isPT,
   getSupportLanguages
 };

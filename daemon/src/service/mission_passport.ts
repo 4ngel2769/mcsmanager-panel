@@ -1,12 +1,12 @@
 import RouterContext from "../entity/ctx";
 
-// task interface
 interface IMission {
   name: string;
   parameter: any;
   start: number;
   end: number;
   count?: number;
+  isDeleted?: boolean;
 }
 
 // Task passport manager
@@ -19,9 +19,9 @@ class MissionPassport {
     setInterval(() => {
       const t = new Date().getTime();
       this.missions.forEach((m, k) => {
-        if (t > m.end) this.missions.delete(k);
+        if (t > m.end || m.isDeleted) this.missions.delete(k);
       });
-    }, 1000);
+    }, 1000 * 60);
   }
 
   // register task passport
@@ -40,7 +40,8 @@ class MissionPassport {
   }
 
   public deleteMission(password: string) {
-    this.missions.delete(password);
+    const m = this.missions.get(password);
+    if (m) m.isDeleted = true;
   }
 }
 

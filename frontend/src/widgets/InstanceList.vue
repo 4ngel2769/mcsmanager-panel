@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import CardPanel from "@/components/CardPanel.vue";
 import type { LayoutCard } from "@/types/index";
 import { ref, onMounted, computed, h } from "vue";
 import { t } from "@/lang/i18n";
@@ -12,17 +11,23 @@ import {
   PlayCircleOutlined,
   PauseCircleOutlined,
   CloseOutlined,
-  CheckCircleOutlined,
-  ExclamationCircleOutlined,
   DeleteOutlined,
   WarningOutlined,
   InfoCircleOutlined,
-  FrownOutlined
+  FrownOutlined,
+  RedoOutlined
 } from "@ant-design/icons-vue";
+
 import BetweenMenus from "@/components/BetweenMenus.vue";
 import { router } from "@/config/router";
 import { remoteInstances, remoteNodeList } from "@/services/apis";
-import { batchStart, batchStop, batchKill, batchDelete } from "@/services/apis/instance";
+import {
+  batchStart,
+  batchStop,
+  batchKill,
+  batchDelete,
+  batchRestart
+} from "@/services/apis/instance";
 import type { NodeStatus } from "../types/index";
 import { notification, Modal } from "ant-design-vue";
 import { computeNodeName } from "../tools/nodes";
@@ -30,9 +35,10 @@ import type { InstanceMoreDetail } from "../hooks/useInstance";
 import { useInstanceMoreDetail } from "../hooks/useInstance";
 import { throttle } from "lodash";
 import { useScreen } from "@/hooks/useScreen";
-import { parseTimestamp } from "../tools/time";
 import { reportErrorMsg } from "@/tools/validator";
 import { INSTANCE_STATUS } from "@/types/const";
+import Shortcut from "./instance/Shortcut.vue";
+import { useInstanceTagSearch, useInstanceTagTips } from "@/hooks/useInstanceTag";
 
 defineProps<{
   card: LayoutCard;
@@ -50,6 +56,15 @@ const currentRemoteNode = ref<NodeStatus>();
 
 const { execute: getNodes, state: nodes, isLoading: isLoading1 } = remoteNodeList();
 const { execute: getInstances, state: instances, isLoading: isLoading2 } = remoteInstances();
+const { updateTagTips, tagTips } = useInstanceTagTips();
+const {
+  tags: selectedTags,
+  setRefreshFn,
+  selectTag,
+  removeTag,
+  isTagSelected,
+  clearTags
+} = useInstanceTagSearch();
 
 const isLoading = computed(() => isLoading1.value || isLoading2.value);
 
@@ -91,9 +106,11 @@ const initInstancesData = async (resetPage?: boolean) => {
         page: operationForm.value.currentPage,
         page_size: operationForm.value.pageSize,
         status: operationForm.value.status,
-        instance_name: operationForm.value.instanceName.trim()
+        instance_name: operationForm.value.instanceName.trim(),
+        tag: JSON.stringify(selectedTags.value)
       }
     });
+    updateTagTips(instances.value?.allTags || []);
   } catch (err) {
     return reportErrorMsg(t("TXT_CODE_e109c091"));
   }
@@ -191,6 +208,11 @@ const instanceOperations = [
     click: () => batchOperation("stop")
   },
   {
+    title: t("TXT_CODE_47dcfa5"),
+    icon: RedoOutlined,
+    click: () => batchOperation("restart")
+  },
+  {
     title: t("TXT_CODE_7b67813a"),
     icon: CloseOutlined,
     click: () => {
@@ -209,12 +231,13 @@ const instanceOperations = [
   }
 ];
 
-const batchOperation = async (actName: "start" | "stop" | "kill") => {
+const batchOperation = async (actName: "start" | "stop" | "kill" | "restart") => {
   if (selectedInstance.value.length === 0) return reportErrorMsg(t("TXT_CODE_a0a77be5"));
   const operationMap = {
     start: async () => exec(batchStart().execute, t("TXT_CODE_2b5fd76e")),
     stop: async () => exec(batchStop().execute, t("TXT_CODE_4822a21")),
-    kill: async () => exec(batchKill().execute, t("TXT_CODE_effefaab"))
+    kill: async () => exec(batchKill().execute, t("TXT_CODE_effefaab")),
+    restart: async () => exec(batchRestart().execute, t("TXT_CODE_effefaab"))
   };
 
   const exec = async (fn: Function, msg: string) => {
@@ -246,13 +269,24 @@ const batchDeleteInstance = async (deleteFile: boolean) => {
   if (selectedInstance.value.length === 0) return reportErrorMsg(t("TXT_CODE_a0a77be5"));
   const { execute, state } = batchDelete();
   const uuids: string[] = [];
+  const paths: string[] = [];
   for (const i of selectedInstance.value) {
     uuids.push(i.instanceUuid);
+    if (i.config?.cwd) {
+      paths.push(i.config.cwd);
+    }
   }
   const confirmDeleteInstanceModal = Modal.confirm({
     title: t("TXT_CODE_2a3b0c17"),
     icon: h(InfoCircleOutlined),
-    content: deleteFile ? t("TXT_CODE_18d2f8ae") : t("TXT_CODE_ac01315a"),
+    content: () => h("div", {}, [
+      h("p", {}, deleteFile ? t("TXT_CODE_18d2f8ae") : t("TXT_CODE_ac01315a")),
+      h("p", { style: "margin-top: 8px; color: #666;" }, [
+        t("TXT_CODE_91d70059"),
+        h("br"),
+        paths.join()
+      ])
+    ]),
     okText: t("TXT_CODE_d507abff"),
     async onOk() {
       try {
@@ -285,6 +319,7 @@ const batchDeleteInstance = async (deleteFile: boolean) => {
 
 onMounted(async () => {
   await initInstancesData();
+  setRefreshFn(initInstancesData);
 });
 </script>
 
@@ -413,6 +448,9 @@ onMounted(async () => {
             </div>
             <div v-else>
               <a-button @click="multipleMode = true">{{ t("TXT_CODE_5cb656b9") }}</a-button>
+              <a-button class="ml-10" @click="handleQueryInstance">
+                {{ t("TXT_CODE_b76d94e0") }}
+              </a-button>
             </div>
           </template>
           <template v-if="multipleMode" #center>
@@ -431,6 +469,27 @@ onMounted(async () => {
           </template>
         </BetweenMenus>
       </a-col>
+      <a-col :span="24">
+        <div v-if="tagTips && tagTips?.length > 0" class="instances-tag-container">
+          <a-tag
+            v-if="selectedTags.length > 0"
+            color="red"
+            class="group-name-tag"
+            @click="clearTags"
+          >
+            {{ t("TXT_CODE_7333c7f7") }}
+          </a-tag>
+          <a-tag
+            v-for="item in tagTips"
+            :key="item"
+            class="group-name-tag"
+            :class="{ 'group-name-tag-active': isTagSelected(item) }"
+            @click="isTagSelected(item) ? removeTag(item) : selectTag(item)"
+          >
+            {{ item }}
+          </a-tag>
+        </div>
+      </a-col>
       <template v-if="isLoading">
         <Loading></Loading>
       </template>
@@ -440,50 +499,20 @@ onMounted(async () => {
             v-for="item in instancesMoreInfo"
             :key="item.instanceUuid"
             :span="24"
-            :xl="6"
+            :xl="8"
             :lg="8"
             :sm="12"
           >
-            <CardPanel
+            <Shortcut
               class="instance-card"
               :class="{ selected: multipleMode && findInstance(item) }"
               style="height: 100%"
+              :card="card"
+              :target-instance-info="item"
+              :target-daemon-id="currentRemoteNode?.uuid"
               @click="handleSelectInstance(item)"
-            >
-              <template #title>
-                {{ item.config.nickname }}
-              </template>
-              <template #body>
-                <a-typography-paragraph>
-                  <div>
-                    {{ t("TXT_CODE_e70a8e24") }}
-                    <span v-if="item.moreInfo?.isRunning" class="color-success">
-                      <CheckCircleOutlined />
-                      {{ item.moreInfo?.statusText }}
-                    </span>
-                    <span v-else-if="item.moreInfo?.isStopped" class="color-info">
-                      {{ item.moreInfo?.statusText }}
-                    </span>
-                    <span v-else>
-                      <ExclamationCircleOutlined />
-                      {{ item.moreInfo?.statusText }}
-                    </span>
-                  </div>
-                  <div>
-                    {{ t("TXT_CODE_68831be6") }}
-                    {{ item.moreInfo?.instanceTypeText }}
-                  </div>
-                  <div>
-                    {{ t("TXT_CODE_d31a684c") }}
-                    {{ parseTimestamp(item.config.lastDatetime) }}
-                  </div>
-                  <div>
-                    {{ t("TXT_CODE_ae747cc0") }}
-                    {{ parseTimestamp(item.config.endTime) }}
-                  </div>
-                </a-typography-paragraph>
-              </template>
-            </CardPanel>
+              @refresh-list="initInstancesData()"
+            />
           </a-col>
         </fade-up-animation>
       </template>
@@ -515,24 +544,42 @@ onMounted(async () => {
 .search-input:hover {
   width: 100%;
 }
-.instance-card {
-  cursor: pointer;
-}
-.instance-card:hover {
-  border: 1px solid var(--color-gray-8);
-  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.16);
-}
 
 .selected {
-  border: none;
-  outline: 3px solid var(--color-blue-6);
-  transition: all 0.3s;
+  border: 1px solid var(--color-blue-6);
   user-select: none;
+
   &:hover {
-    border: none;
-    outline: 3px solid var(--color-blue-6);
+    border: 1px solid var(--color-blue-6);
     transition: all 0.3s;
     box-shadow: inset 0 0 0 0.5px var(--color-blue-6);
+  }
+}
+
+.instances-tag-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-right: -4px;
+  margin-left: -4px;
+  max-height: 114px;
+  overflow-y: auto;
+
+  .group-name-tag {
+    background-color: var(--color-gray-4);
+    margin: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+    &:hover {
+      border-color: var(--color-gray-8);
+    }
+  }
+
+  .group-name-tag-active {
+    background-color: var(--color-green-1) !important;
+    border-color: var(--color-green-3);
+    color: var(--color-green-7);
   }
 }
 </style>

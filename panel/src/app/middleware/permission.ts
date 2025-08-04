@@ -1,27 +1,30 @@
 import Koa from "koa";
-import { GlobalVariable } from "common";
+import { GlobalVariable } from "mcsmanager-common";
 import userSystem from "../service/user_service";
 import { getUuidByApiKey, ILLEGAL_ACCESS_KEY, isAjax, logout } from "../service/passport_service";
 import { $t } from "../i18n";
 
+/**
+ * @description Request speed limit, 5 requests per second
+ */
 function requestSpeedLimit(ctx: Koa.ParameterizedContext) {
-  const SESSION_REQ_TIME = "lastRequestTime";
-  const INV = 40;
+  const SESSION_REQ_TIMES = "SESSION_REQ_TIMES";
+  const MAX_REQUESTS_PER_SECOND = 5;
+  const WINDOW_SIZE = 1000;
   const currentTime = new Date().getTime();
-  const LastTime = ctx.session?.[SESSION_REQ_TIME];
   if (!ctx.session) return false;
-  if (LastTime && typeof LastTime === "number") {
-    if (currentTime - LastTime < INV) return false;
-    ctx.session[SESSION_REQ_TIME] = currentTime;
-  } else {
-    ctx.session[SESSION_REQ_TIME] = currentTime;
+  let requestTimes: number[] = ctx.session[SESSION_REQ_TIMES] || [];
+  requestTimes = requestTimes.filter((time) => currentTime - time < WINDOW_SIZE);
+  if (requestTimes.length >= MAX_REQUESTS_PER_SECOND) {
+    return false;
   }
-
+  requestTimes.push(currentTime);
+  ctx.session[SESSION_REQ_TIMES] = requestTimes;
   return true;
 }
 
 // Failed callback
-function verificationFailed(ctx: Koa.ParameterizedContext) {
+export function verificationFailed(ctx: Koa.ParameterizedContext) {
   ctx.status = 403;
   ctx.body = `[Forbidden] ${$t("TXT_CODE_permission.forbidden")}`;
 }
@@ -66,8 +69,13 @@ export default (parameter: IPermissionCfg) => {
     }
 
     // If it is an API request, perform API-level permission judgment
-    if (ctx.query.apikey) {
-      const apiKey = String(ctx.query.apikey);
+    /**
+     * @date update time: 2024-08-06
+     * @description Added a new "API-KEY" filling method
+     */
+    const key = ctx.request?.header["x-request-api-key"] || ctx.query.apikey;
+    if (key) {
+      const apiKey = String(key);
       const user = getUuidByApiKey(apiKey);
       if (user && user.permission >= Number(parameter.level)) {
         return await next();

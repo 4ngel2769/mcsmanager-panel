@@ -167,7 +167,29 @@ export const uploadAddress = useDefineApi<
 
 export const uploadFile = useDefineApi<
   {
+    params:
+      | {
+          overwrite: boolean;
+          filename: string;
+          size: number;
+          sum: string;
+        }
+      | { stop: boolean };
+  },
+  {
+    id?: string;
+    received?: { start: number; end: number }[];
+  }
+>({
+  method: "POST"
+});
+
+export const uploadFilePiece = useDefineApi<
+  {
     data: FormData;
+    params: {
+      offset: number;
+    };
   },
   any
 >({

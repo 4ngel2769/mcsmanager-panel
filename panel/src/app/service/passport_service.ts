@@ -3,7 +3,7 @@ import { authenticator } from "otplib";
 import QRCode from "qrcode";
 import userSystem from "./user_service";
 import { timeUuid } from "./password";
-import { GlobalVariable, toText } from "common";
+import { GlobalVariable, toText } from "mcsmanager-common";
 import { systemConfig } from "../setting";
 import { logger } from "./log";
 import { User } from "../entity/user";
@@ -23,33 +23,17 @@ export function login(
 ): string {
   // record the number of login requests
   GlobalVariable.set(LOGIN_COUNT, GlobalVariable.get(LOGIN_COUNT, 0) + 1);
-  const ip = systemConfig?.reverseProxyMode
-    ? toText(ctx.header["x-real-ip"])
-    : ctx.socket.remoteAddress;
-
+  const ip = getLoginIp(ctx);
   // check user information
   try {
-    userSystem.checkUser({ userName, passWord }, twoFACode);
+    const totpDriftToleranceSteps = systemConfig?.totpDriftToleranceSteps || 0;
+    userSystem.checkUser({ userName, passWord }, twoFACode, totpDriftToleranceSteps);
     // The number of errors to reset this IP after successful login
     const ipMap = GlobalVariable.get(LOGIN_FAILED_KEY);
     if (ipMap) delete ipMap[ip || ""];
 
     // Session Session state changes to logged in
-    const user = userSystem.getUserByUserName(userName);
-    if (!user) throw new Error($t("TXT_CODE_router.login.nameOrPassError"));
-    if (!ctx.session) throw new Error("Session is Null!");
-
-    user.loginTime = new Date().toLocaleString();
-    ctx.session["login"] = true;
-    ctx.session["userName"] = userName;
-    ctx.session["uuid"] = user.uuid;
-    ctx.session["token"] = timeUuid();
-    ctx.session.save();
-    logger.info($t("TXT_CODE_42036f92"));
-    logger.info(`[LOGIN] IP: ${ip} Login ${userName} successful!`);
-    logger.info(`[LOGIN] Token: ${ctx.session["token"]}`);
-    logger.info($t("TXT_CODE_42036f92"));
-    return ctx.session["token"];
+    return loginSuccess(ctx, userName);
   } catch (err) {
     // record the number of login failures
     GlobalVariable.set(LOGIN_FAILED_COUNT_KEY, GlobalVariable.get(LOGIN_FAILED_COUNT_KEY, 0) + 1);
@@ -61,6 +45,31 @@ export function login(
     logger.info(`[LOGIN] IP: ${ip}, Try login ${userName} failed!`);
     throw err;
   }
+}
+
+export function loginSuccess(ctx: Koa.ParameterizedContext, userName: string) {
+  const ip = getLoginIp(ctx);
+  const user = userSystem.getUserByUserName(userName);
+  if (!user) throw new Error($t("TXT_CODE_router.login.nameOrPassError"));
+  if (!ctx.session) throw new Error("Session is Null!");
+
+  user.loginTime = new Date().toLocaleString();
+  ctx.session["login"] = true;
+  ctx.session["userName"] = userName;
+  ctx.session["uuid"] = user.uuid;
+  ctx.session["token"] = timeUuid();
+  ctx.session.save();
+
+  logger.info($t("TXT_CODE_42036f92"));
+  logger.info(`[LOGIN] IP: ${ip} Login ${userName} successful!`);
+  logger.info(`[LOGIN] Token: ${ctx.session["token"]}`);
+  logger.info($t("TXT_CODE_42036f92"));
+
+  return String(ctx.session["token"]);
+}
+
+export function getLoginIp(ctx: Koa.ParameterizedContext) {
+  return ctx.ip ?? "";
 }
 
 export async function bind2FA(ctx: Koa.ParameterizedContext) {
@@ -98,6 +107,7 @@ export function logout(ctx: Koa.ParameterizedContext): boolean {
   ctx.session["userName"] = null;
   ctx.session["uuid"] = null;
   ctx.session["token"] = null;
+  ctx.session.maxAge = 0;
   ctx.session.save();
   return true;
 }
@@ -115,12 +125,17 @@ export async function register(
   });
   if (f) {
     // Next. UUID and other data will be automatically generated.
-    await userSystem.create({
+    const { uuid } = await userSystem.create({
       userName,
       passWord,
       permission
     });
-    return true;
+
+    return {
+      uuid,
+      userName,
+      permission
+    };
   }
   return false;
 }
@@ -172,9 +187,7 @@ export function checkBanIp(ctx: Koa.ParameterizedContext) {
   // This IpMap also needs to be used when logging in
   const ipMap = GlobalVariable.get(LOGIN_FAILED_KEY);
 
-  const ip =
-    (systemConfig?.reverseProxyMode ? toText(ctx.header["x-real-ip"]) : ctx.socket.remoteAddress) ||
-    "";
+  const ip = getLoginIp(ctx);
 
   if (ipMap[ip] > 10 && systemConfig?.loginCheckIp === true) {
     if (ipMap[ip] != 999) {

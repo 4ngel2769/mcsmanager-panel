@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref, reactive } from "vue";
 import CardPanel from "@/components/CardPanel.vue";
-import { SUPPORTED_LANGS, getCurrentLang, setLanguage, t } from "@/lang/i18n";
-import { panelInstall, updateSettings } from "@/services/apis";
+import { getCurrentLang, t } from "@/lang/i18n";
+import { panelInstall } from "@/services/apis";
 import { reportErrorMsg } from "@/tools/validator";
 import type { FormInstance } from "ant-design-vue";
 import { useAppRouters } from "@/hooks/useAppRouters";
@@ -44,7 +44,11 @@ const createUser = async () => {
     await updateUserInfo();
     step.value++;
   } catch (err: any) {
-    reportErrorMsg(err.message);
+    err.errorFields?.forEach((field: any) => {
+      field?.errors?.forEach((error: any) => {
+        reportErrorMsg(error);
+      });
+    });
   } finally {
     installLoading.value = false;
   }

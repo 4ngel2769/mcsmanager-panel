@@ -4,19 +4,19 @@ import path from "path";
 import os from "os";
 import Instance from "../entity/instance/instance";
 import EventEmitter from "events";
-import KillCommand from "../entity/commands/kill";
 import logger from "./log";
 import { v4 } from "uuid";
 import { Socket } from "socket.io";
 import StorageSubsystem from "../common/system_storage";
 import InstanceConfig from "../entity/instance/Instance_config";
-import { QueryMapWrapper, InstanceStreamListener } from "common";
+import { QueryMapWrapper, InstanceStreamListener } from "mcsmanager-common";
 import FunctionDispatcher from "../entity/commands/dispatcher";
 import InstanceControl from "./system_instance_control";
-import StartCommand from "../entity/commands/start";
 import { globalConfiguration } from "../entity/config";
+import takeoverContainer from "./takeover_container";
 
 // init instance default install path
+globalConfiguration.load();
 let INSTANCE_DATA_DIR = path.join(process.cwd(), "data/InstanceData");
 if (globalConfiguration.config.defaultInstancePath) {
   INSTANCE_DATA_DIR = path.normalize(globalConfiguration.config.defaultInstancePath);
@@ -42,26 +42,28 @@ class InstanceSubsystem extends EventEmitter {
   // start automatically at boot
   private autoStart() {
     this.instances.forEach((instance) => {
-      if (instance.config.eventTask.autoStart) {
-        instance
-          .exec(new StartCommand())
-          .then(() => {
-            logger.info(
-              $t("TXT_CODE_system_instance.autoStart", {
-                name: instance.config.nickname,
-                uuid: instance.instanceUuid
-              })
-            );
-          })
-          .catch((reason) => {
-            logger.error(
-              $t("TXT_CODE_system_instance.autoStartErr", {
-                name: instance.config.nickname,
-                uuid: instance.instanceUuid,
-                reason: reason
-              })
-            );
-          });
+      if (instance.config.eventTask.autoStart && instance.status() == Instance.STATUS_STOP) {
+        setTimeout(() => {
+          instance
+            .execPreset("start")
+            .then(() => {
+              logger.info(
+                $t("TXT_CODE_system_instance.autoStart", {
+                  name: instance.config.nickname,
+                  uuid: instance.instanceUuid
+                })
+              );
+            })
+            .catch((reason) => {
+              logger.error(
+                $t("TXT_CODE_system_instance.autoStartErr", {
+                  name: instance.config.nickname,
+                  uuid: instance.instanceUuid,
+                  reason: reason
+                })
+              );
+            });
+        }, 1000 * 10);
       }
     });
   }
@@ -92,23 +94,58 @@ class InstanceSubsystem extends EventEmitter {
       }
     });
 
+    // handle global instance
+    let globalConfig: InstanceConfig;
+    try {
+      globalConfig = StorageSubsystem.load(
+        "InstanceConfig",
+        InstanceConfig,
+        this.GLOBAL_INSTANCE_UUID
+      );
+      if (globalConfig?.nickname !== this.GLOBAL_INSTANCE)
+        throw new Error("Global instance config is not valid");
+    } catch (error: any) {
+      // if global instance config is not valid, create a new one
+      // create default global instance config if not exists
+      globalConfig = new InstanceConfig();
+      globalConfig.nickname = this.GLOBAL_INSTANCE;
+      globalConfig.cwd = "/";
+      globalConfig.startCommand = os.platform() === "win32" ? "cmd.exe" : "bash";
+      globalConfig.stopCommand = "^c";
+      globalConfig.ie = "utf-8";
+      globalConfig.oe = "utf-8";
+      globalConfig.type = Instance.TYPE_UNIVERSAL;
+      globalConfig.processType = "general";
+
+      // save config to file
+      StorageSubsystem.store("InstanceConfig", this.GLOBAL_INSTANCE_UUID, globalConfig);
+    }
+
+    // create global instance
     this.createInstance(
       {
-        nickname: this.GLOBAL_INSTANCE,
-        cwd: "/",
-        startCommand: os.platform() === "win32" ? "cmd.exe" : "bash",
-        stopCommand: "^c",
-        ie: "utf-8",
-        oe: "utf-8",
-        type: Instance.TYPE_UNIVERSAL,
-        processType: "general"
+        nickname: globalConfig.nickname,
+        cwd: globalConfig.cwd,
+        startCommand: globalConfig.startCommand,
+        stopCommand: globalConfig.stopCommand,
+        ie: globalConfig.ie,
+        oe: globalConfig.oe,
+        type: globalConfig.type,
+        processType: globalConfig.processType
       },
-      false,
+      true, // allow persistence
       this.GLOBAL_INSTANCE_UUID
     );
 
-    // handle autostart
-    this.autoStart();
+    takeoverContainer()
+      .catch((error) => {
+        const reason = error.message || error;
+        if (typeof reason == "string" && reason.includes("connect ENOENT")) {
+          return;
+        }
+        logger.error(`${$t("TXT_CODE_8d4c8f7e")}: ${reason}`);
+      })
+      .finally(() => this.autoStart());
   }
 
   createInstance(cfg: any, persistence = true, uuid?: string) {
@@ -179,7 +216,7 @@ class InstanceSubsystem extends EventEmitter {
       this.instances.delete(instanceUuid);
       StorageSubsystem.delete("InstanceConfig", instanceUuid);
       InstanceControl.deleteInstanceAllTask(instanceUuid);
-      if (deleteFile) fs.remove(instance.config.cwd, (err) => {});
+      if (deleteFile) fs.remove(instance.absoluteCwdPath(), (err) => {});
       return true;
     }
     throw new Error($t("TXT_CODE_3bfb9e04"));
@@ -227,7 +264,7 @@ class InstanceSubsystem extends EventEmitter {
           `Instance ${instance.config.nickname} (${instance.instanceUuid}) is running or busy, and is being forced to end.`
         );
         promises.push(
-          instance.execCommand(new KillCommand()).then(() => {
+          instance.execPreset("kill").then(() => {
             if (!this.isGlobalInstance(instance))
               StorageSubsystem.store("InstanceConfig", instance.instanceUuid, instance.config);
             logger.info(

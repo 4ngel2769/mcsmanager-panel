@@ -41,7 +41,9 @@ import DefaultCard from "@/widgets/DefaultCard.vue";
 import Carousel from "@/widgets/others/Carousel.vue";
 import PluginCard from "@/widgets/others/PluginCard.vue";
 import MusicCard from "@/widgets/others/MusicCard.vue";
-
+import ShelvesCard from "@/widgets/ShelvesCard.vue";
+import ShopInfoCard from "@/widgets/ShopInfoCard.vue";
+import OperationLogCard from "@/widgets/OperationLogCard.vue";
 import { NEW_CARD_TYPE } from "../types/index";
 import { ROLE } from "./router";
 
@@ -85,7 +87,10 @@ export const LAYOUT_CARD_TYPES: { [key: string]: any } = {
   DefaultCard,
   Carousel,
   PluginCard,
-  MusicCard
+  MusicCard,
+  ShelvesCard,
+  ShopInfoCard,
+  OperationLogCard
 };
 
 export interface NewCardItem extends LayoutCard {
@@ -388,7 +393,7 @@ export function getLayoutCardPool() {
       meta: {},
       width: 6,
       description: t("TXT_CODE_6f659da2"),
-      height: LayoutCardHeight.SMALL,
+      height: LayoutCardHeight.MINI,
       category: NEW_CARD_TYPE.DATA
     },
     {
@@ -399,7 +404,7 @@ export function getLayoutCardPool() {
       meta: {},
       width: 6,
       description: t("TXT_CODE_6f659da2"),
-      height: LayoutCardHeight.SMALL,
+      height: LayoutCardHeight.MINI,
       category: NEW_CARD_TYPE.DATA
     },
     {
@@ -411,6 +416,17 @@ export function getLayoutCardPool() {
       width: 12,
       description: t("TXT_CODE_2a8dc13f"),
       height: LayoutCardHeight.BIG,
+      category: NEW_CARD_TYPE.DATA
+    },
+    {
+      id: getRandomId(),
+      permission: ROLE.ADMIN,
+      type: "OperationLogCard",
+      title: t("TXT_CODE_f6a33629"),
+      meta: {},
+      width: 3,
+      description: t("TXT_CODE_9e8c176e"),
+      height: LayoutCardHeight.MEDIUM,
       category: NEW_CARD_TYPE.DATA
     },
     {
@@ -460,7 +476,7 @@ export function getLayoutCardPool() {
     },
     {
       id: getRandomId(),
-      permission: ROLE.ADMIN,
+      permission: ROLE.USER,
       meta: {},
       type: "InstanceManagerBtns",
       title: t("TXT_CODE_d2bbb2f1"),
@@ -494,6 +510,28 @@ export function getLayoutCardPool() {
       title: t("TXT_CODE_5ebec0db"),
       width: 4,
       description: t("TXT_CODE_cb84b22"),
+      height: LayoutCardHeight.SMALL,
+      category: NEW_CARD_TYPE.COMMON
+    },
+    {
+      id: getRandomId(),
+      permission: ROLE.GUEST,
+      meta: {},
+      type: "ShelvesCard",
+      title: t("TXT_CODE_b99cae18"),
+      width: 8,
+      description: t("TXT_CODE_163e2d0a"),
+      height: LayoutCardHeight.MEDIUM,
+      category: NEW_CARD_TYPE.COMMON
+    },
+    {
+      id: getRandomId(),
+      permission: ROLE.GUEST,
+      meta: {},
+      type: "ShopInfoCard",
+      title: t("TXT_CODE_48261ab7"),
+      width: 8,
+      description: t("TXT_CODE_1648c9ea"),
       height: LayoutCardHeight.SMALL,
       category: NEW_CARD_TYPE.COMMON
     }

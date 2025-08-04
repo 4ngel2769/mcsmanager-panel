@@ -14,7 +14,9 @@ interface Props extends MountComponent {
   keyTitle?: string;
   valueTitle?: string;
   data: any[];
+  subTitle?: string;
   columns?: AntColumnsType[];
+  textarea?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -91,7 +93,7 @@ const operation = (type: "add" | "del", index = 0) => {
   <a-modal
     v-model:open="open"
     centered
-    width="600px"
+    width="1300px"
     :mask-closable="false"
     :title="props.title"
     :ok-text="t('TXT_CODE_d507abff')"
@@ -100,6 +102,10 @@ const operation = (type: "add" | "del", index = 0) => {
     @cancel="cancel"
   >
     <div class="dialog-overflow-container">
+      <div v-if="props.subTitle" style="font-size: 13px" class="text-gray-400 mb-4">
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <span v-html="props.subTitle"></span>
+      </div>
       <div class="flex justify-end mb-20">
         <a-button :icon="h(PlusCircleOutlined)" @click="operation('add')">
           {{ t("TXT_CODE_dfc17a0c") }}
@@ -130,9 +136,17 @@ const operation = (type: "add" | "del", index = 0) => {
                   }
                 ]"
               >
-                <a-input
+                <a-textarea
+                  v-if="props.textarea"
                   v-model:value="record[String(column.dataIndex)]"
-                  :placeholder="t('TXT_CODE_4ea93630')"
+                  :placeholder="(column as any).placeholder"
+                  :rows="3"
+                  :auto-size="false"
+                />
+                <a-input
+                  v-else
+                  v-model:value="record[String(column.dataIndex)]"
+                  :placeholder="(column as any).placeholder"
                 />
               </a-form-item>
             </template>

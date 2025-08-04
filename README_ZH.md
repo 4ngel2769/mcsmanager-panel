@@ -16,7 +16,8 @@
 
 [官方网站](http://mcsmanager.com/) | [使用文档](https://docs.mcsmanager.com/#/zh-cn/) | [QQ 群](https://jq.qq.com/?_wv=1027&k=Pgl9ScGw) | [TG 群](https://t.me/MCSManager_dev) | [成为赞助者](https://afdian.net/a/mcsmanager)
 
-[English](README.md) | [简体中文](README_ZH.md) | [繁體中文](README_TW.md)
+[English](README.md) | [繁體中文](README_TW.md) | [Deutsch](README_DE.md) | [Português BR](README_PTBR.md) |
+[日本語](README_JP.md) | [Spanish](README_ES.md) | [Thai](README_TH.md)
 
 </div>
 
@@ -24,7 +25,7 @@
 
 ## 这是什么？
 
-**MCSManager 面板**（简称：MCSM 面板）是一款免费，开源，分布式，轻量级，快速部署，支持 Minecraft 和 Steam 游戏服务器的 Web 管理面板。
+**MCSManager 面板**（简称：MCSM 面板 或MCSM）是一款免费，开源，分布式，轻量级，快速部署，支持 Minecraft 和 Steam 游戏服务器的 Web 管理面板。
 
 此软件在 `Minecraft` 和其他游戏社区内中已有一定的流行程度，它可以帮助你集中管理多个物理服务器，实现在任何主机上创建游戏服务器，并且提供安全可靠的多用户权限系统，可以很轻松的帮助你管理多个服务器，一直在为 `Minecraft`，`Terraria` 和 `Steam` 游戏服务器的管理员，运维人员和个人开发者提供健康的软件支持。
 
@@ -39,9 +40,9 @@
 1. 支持一键开服！轻松部署 `Minecraft` Java 版/基岩版游戏服务器。
 2. 兼容大部分 `Steam` 游戏服务器，列如 `幻兽帕鲁`，`战术小队`，`僵尸毁灭工程` 和 `泰拉瑞亚` 等。
 3. 网页支持拖拽式的小卡片布局，打造自己喜欢的界面布局。
-4. 支持 `Docker` 虚拟化，支持多用户，支持商业出租行为。
-5. 支持所有 `Docker` 镜像，轻松打造预设！
-6. 支持分布式，一个网页即可同时管理数台机器。
+4. 支持 `Docker Hub` 上的所有镜像，支持多用户，支持商业服务。
+5. 支持分布式，一个网页即可同时管理数台机器。
+6. 技术栈简单，仅需擅长 Typescript 即可完成整个 MCSManager 开发！
 7. 更多...
 
 <br />
@@ -79,7 +80,7 @@ systemctl start mcsm-{web,daemon} # 开启面板
 systemctl stop mcsm-{web,daemon}  # 关闭面板
 ```
 
-- 脚本仅适用于 Ubuntu/Centos/Debian/Archlinux。
+- 脚本仅适用于 Ubuntu/Centos/Debian/Archlinux
 - 面板代码与运行环境自动安装在 `/opt/mcsmanager/` 目录下。
 
 <br />
@@ -108,7 +109,7 @@ wget https://github.com/MCSManager/MCSManager/releases/latest/download/mcsmanage
 tar -zxf mcsmanager_linux_release.tar.gz
 
 # 安装依赖库
-./install-dependency.sh
+./install.sh
 
 # 请打开两个终端或screen
 
@@ -126,16 +127,18 @@ tar -zxf mcsmanager_linux_release.tar.gz
 
 <br />
 
-## 浏览器兼容性
-
-- 支持 `Chrome` `Firefox` `Safari` `Opera` 等现代主流浏览器。
-- 已放弃支持 `IE` 浏览器。
-
-<br />
-
 ## 搭建开发环境
 
 此段落面向开发人员，普通用户无需关注也无需执行。
+
+### 必备插件
+
+我们使用 “VS Code” 开发 MCSManager，你可能需要安装这些插件：
+
+- i18n 文案显示支持（I18n Ally）
+- 代码格式化（Prettier）
+- Vue - Offcial
+- ESLint
 
 ### MacOS
 
@@ -153,6 +156,10 @@ git clone https://github.com/MCSManager/MCSManager.git
 ./npm-dev-windows.bat
 ```
 
+### 依赖文件
+
+接下来你还需要前往 [PTY](https://github.com/MCSManager/PTY) 和 [Zip-Tools](https://github.com/MCSManager/Zip-Tools) 两个项目下载对应的二进制文件，将他们存放到 `daemon/lib` 目录下，以确保 `仿真终端` 和 `文件解压缩` 的正常工作。
+
 ### 构建生产环境版本
 
 ```bash
@@ -160,7 +167,7 @@ git clone https://github.com/MCSManager/MCSManager.git
 ./build.sh  # MacOS
 ```
 
-接下来你还需要前往 [PTY](https://github.com/MCSManager/PTY) 和 [Zip-Tools](https://github.com/MCSManager/Zip-Tools) 两个项目下载对应的二进制文件，将他们存放到 `daemon/lib` 目录下，以确保 `仿真终端` 和 `文件解压缩` 的正常工作。
+最终产物目录: "production-code"
 
 <br />
 
@@ -172,11 +179,19 @@ git clone https://github.com/MCSManager/MCSManager.git
 
 <br />
 
+## 浏览器兼容性
+
+- 支持 `Chrome` `Firefox` `Safari` `Opera` 等现代主流浏览器。
+- 已放弃支持 `IE` 浏览器。
+
+<br />
+
 ## BUG 报告
 
 欢迎发现的任何问题进行反馈，必当及时修复。
 
 若发现严重安全漏洞又不便公开发布，请发送邮件至: support@mcsmanager.com，安全问题修复后将在代码中附加漏洞发现者姓名。
+
 
 <br />
 
@@ -185,8 +200,8 @@ git clone https://github.com/MCSManager/MCSManager.git
 感谢下列成员提供的**大量**翻译文件：
 
 - [KevinLu2000](https://github.com/KevinLu2000)
-- [Unitwk](https://github.com/unitwk)
-- [JianyueLab](https://github.com/JianyueLab)
+- [Yumao](https://github.com/yumao233)
+- [JHL-HK](https://github.com/jhl-hk)
 - [IceBrick](https://github.com/IceBrick01)
 
 <br />
@@ -195,4 +210,4 @@ git clone https://github.com/MCSManager/MCSManager.git
 
 源代码遵循 [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) 协议。
 
-Copyright ©2024 MCSManager.
+Copyright ©2025 MCSManager.

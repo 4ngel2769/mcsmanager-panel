@@ -19,7 +19,7 @@ import {
 } from "@ant-design/icons-vue";
 import { useScreen } from "@/hooks/useScreen";
 import CardPanel from "./CardPanel.vue";
-import { $t, $t as t } from "@/lang/i18n";
+import { t } from "@/lang/i18n";
 import { THEME, useAppConfigStore } from "@/stores/useAppConfigStore";
 import { logoutUser } from "@/services/apis/index";
 import { message } from "ant-design-vue";
@@ -53,16 +53,21 @@ const menus = computed(() => {
   return router
     .getRoutes()
     .filter((v) => {
+      const metaInfo = v.meta as RouterMetaInfo;
+      if (metaInfo.condition && !metaInfo.condition()) {
+        return false;
+      }
       if (containerState.isDesignMode) {
-        return v.meta.onlyDisplayEditMode || v.meta.mainMenu;
+        return metaInfo.onlyDisplayEditMode || metaInfo.mainMenu;
       }
       if (isAdmin.value) {
-        return v.meta.mainMenu === true && v.meta.onlyDisplayEditMode !== true;
+        return metaInfo.mainMenu === true && metaInfo.onlyDisplayEditMode !== true;
       }
+
       return (
-        v.meta.mainMenu === true &&
+        metaInfo.mainMenu === true &&
         isLogged.value &&
-        Number(appState.userInfo?.permission) >= Number(v.meta.permission)
+        Number(appState.userInfo?.permission) >= Number(metaInfo.permission)
       );
     })
     .map((r) => {
@@ -121,8 +126,8 @@ const appMenus = computed(() => {
       icon: SaveOutlined,
       click: async () => {
         Modal.confirm({
-          title: $t("TXT_CODE_d73c8510"),
-          content: $t("TXT_CODE_6d9b9f22"),
+          title: t("TXT_CODE_d73c8510"),
+          content: t("TXT_CODE_6d9b9f22"),
           async onOk() {
             changeDesignMode(false);
             await saveGlobalLayoutConfig();
@@ -143,8 +148,8 @@ const appMenus = computed(() => {
       icon: CloseCircleOutlined,
       click: async () => {
         Modal.confirm({
-          title: $t("TXT_CODE_8f20c21c"),
-          content: $t("TXT_CODE_9740f199"),
+          title: t("TXT_CODE_8f20c21c"),
+          content: t("TXT_CODE_9740f199"),
           async onOk() {
             window.location.reload();
           }
@@ -158,8 +163,8 @@ const appMenus = computed(() => {
       icon: RedoOutlined,
       click: async () => {
         Modal.confirm({
-          title: $t("TXT_CODE_74fa2f73"),
-          content: $t("TXT_CODE_f63bfe78"),
+          title: t("TXT_CODE_74fa2f73"),
+          content: t("TXT_CODE_f63bfe78"),
           async onOk() {
             await resetGlobalLayoutConfig();
             notification.success({
@@ -181,8 +186,8 @@ const appMenus = computed(() => {
       click: (key: string) => {
         if (key === THEME.DARK) {
           Modal.confirm({
-            title: $t("TXT_CODE_9775ccb"),
-            content: $t("TXT_CODE_90b2ae00"),
+            title: t("TXT_CODE_9775ccb"),
+            content: t("TXT_CODE_90b2ae00"),
             async onOk() {
               setTheme(THEME.DARK);
             }
@@ -195,11 +200,11 @@ const appMenus = computed(() => {
       onlyPC: false,
       menus: [
         {
-          title: $t("TXT_CODE_673eac8e"),
+          title: t("TXT_CODE_673eac8e"),
           value: THEME.LIGHT
         },
         {
-          title: $t("TXT_CODE_5e4a370d"),
+          title: t("TXT_CODE_5e4a370d"),
           value: THEME.DARK
         }
       ]
@@ -233,7 +238,7 @@ const appMenus = computed(() => {
       icon: LogoutOutlined,
       click: async () => {
         Modal.confirm({
-          title: $t("TXT_CODE_9654b91c"),
+          title: t("TXT_CODE_9654b91c"),
           async onOk() {
             await execute();
             message.success(t("TXT_CODE_11673d8c"));
@@ -291,7 +296,7 @@ const openPhoneMenu = (b = false) => {
             <template #title>
               <span>{{ item.title }}</span>
             </template>
-            <div class="nav-button" type="text" @click="item.click">
+            <div class="nav-button" type="text" @click="(e: any) => item.click(e.key)">
               <component :is="item.icon"></component>
             </div>
           </a-tooltip>

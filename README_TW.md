@@ -16,7 +16,8 @@
 
 [官方網站](http://mcsmanager.com/) | [教學說明](https://docs.mcsmanager.com/#/zh-cn/) | [TG 群組](https://t.me/MCSManager_dev) | [成為贊助者](https://afdian.net/a/mcsmanager)
 
-[English](README.md) | [简体中文](README_ZH.md) | [繁體中文](README_TW.md)
+[English](README.md) | [简体中文](README_ZH.md) | [Deutsch](README_DE.md) | [Português BR](README_PTBR.md) |
+[日本語](README_JP.md) | [Spanish](README_ES.md) | [Thai](README_TH.md)
 
 </div>
 
@@ -118,9 +119,9 @@ cd /opt/mcsmanager/
 wget https://github.com/MCSManager/MCSManager/releases/latest/download/mcsmanager_linux_release.tar.gz
 tar -zxf mcsmanager_linux_release.tar.gz
 
-# 安裝依賴函式庫
+# 安裝函式庫
 
-./install-dependency.sh
+./install.sh
 
 # 請開啟兩個終端機或 screen
 
@@ -138,7 +139,7 @@ tar -zxf mcsmanager_linux_release.tar.gz
 
 ```
 
-這種安裝方式不會自動註冊面板到系統服務（Service），所以必須使用 `screen` 軟體來管理，如果你希望由系統服務來接管 MCSManager，請參考文件。
+這種安裝方式不會自動註冊系統服務(Service)，所以必須使用 `screen` 軟體來管理，如果你希望由系統服務來接管 MCSManager，請參考文件。
 
 <br />
 
@@ -151,7 +152,7 @@ tar -zxf mcsmanager_linux_release.tar.gz
 
 ## 建立開發環境
 
-給開發人員使用，一般使用者無需關注也無需執行。
+這是給開發人員使用的，一般使用者可直接跳過這個環節。
 
 ### MacOS
 
@@ -171,7 +172,7 @@ git clone https://github.com/MCSManager/MCSManager.git
 
 ```
 
-### 建構生產環境版本
+### 編譯正式環境版本
 
 ```bash
 ./build.bat # Windows
@@ -204,8 +205,8 @@ git clone https://github.com/MCSManager/MCSManager.git
 感謝下列成員提供的**大量**翻譯檔案：
 
 - [KevinLu2000](https://github.com/KevinLu2000)
-- [Unitwk](https://github.com/unitwk)
-- [JianyueLab](https://github.com/JianyueLab)
+- [Yumao](https://github.com/yumao233)
+- [JHL-HK](https://github.com/jhl-hk)
 - [IceBrick](https://github.com/IceBrick01)
 
 <br />
@@ -214,4 +215,4 @@ git clone https://github.com/MCSManager/MCSManager.git
 
 原始碼遵循 [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) 協定。
 
-Copyright ©2024 MCSManager.
+Copyright ©2025 MCSManager.

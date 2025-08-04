@@ -2,14 +2,17 @@ import Koa from "koa";
 import Router from "@koa/router";
 import validator from "../middleware/validator";
 import permission from "../middleware/permission";
-import { check, login, logout, checkBanIp } from "../service/passport_service";
+import { check, login, logout, checkBanIp, loginSuccess } from "../service/passport_service";
 import { systemConfig } from "../setting";
 import userSystem, { TwoFactorError } from "../service/user_service";
 import { logger } from "../service/log";
 import { $t } from "../i18n";
 import axios from "axios";
-import { GlobalVariable } from "common";
+import { GlobalVariable } from "mcsmanager-common";
 import { ROLE } from "../entity/user";
+import SystemConfig from "../entity/setting";
+import { operationLogger } from "../service/operation_logger";
+
 const router = new Router({ prefix: "/auth" });
 
 // [Public Permission]
@@ -75,8 +78,11 @@ router.all(
       language: systemConfig?.language || null,
       settings: {
         canFileManager: systemConfig?.canFileManager || false,
-        allowUsePreset: systemConfig?.allowUsePreset || false
-      }
+        allowUsePreset: systemConfig?.allowUsePreset || false,
+        businessMode: systemConfig?.businessMode || false,
+        businessId: systemConfig?.businessId || null,
+        allowChangeCmd: systemConfig?.allowChangeCmd || false
+      } as Partial<SystemConfig>
     };
   }
 );
@@ -88,8 +94,8 @@ router.all(
   permission({ token: false, level: null }),
   validator({ body: { username: String, password: String } }),
   async (ctx: Koa.ParameterizedContext) => {
-    const userName = ctx.request.body.username;
-    const passWord = ctx.request.body.password;
+    const userName = String(ctx.request.body.username);
+    const passWord = String(ctx.request.body.password);
     if (userSystem.objects.size === 0) {
       if (!userSystem.validatePassword(passWord))
         throw new Error($t("TXT_CODE_router.user.passwordCheck"));
@@ -98,6 +104,11 @@ router.all(
         userName,
         passWord,
         permission: 10
+      });
+      operationLogger.log("user_create", {
+        operator_ip: ctx.ip,
+        operator_name: userName,
+        target_user_name: userName
       });
       login(ctx, userName, passWord);
       return (ctx.body = true);

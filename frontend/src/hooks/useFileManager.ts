@@ -1,5 +1,4 @@
 import { message, Modal } from "ant-design-vue";
-import type { UploadProps } from "ant-design-vue";
 import type { Key } from "ant-design-vue/es/table/interface";
 import { ref, createVNode, reactive, type VNodeRef, computed } from "vue";
 import { ExclamationCircleOutlined } from "@ant-design/icons-vue";
@@ -16,7 +15,6 @@ import {
   moveFile as moveFileApi,
   compressFile as compressFileApi,
   uploadAddress,
-  uploadFile as uploadFileApi,
   downloadAddress,
   changePermission as changePermissionApi
 } from "@/services/apis/fileManager";
@@ -29,6 +27,9 @@ import type {
 } from "@/types/fileManager";
 import { reportErrorMsg } from "@/tools/validator";
 import { openLoadingDialog } from "@/components/fc";
+import { useImageViewerDialog } from "@/components/fc";
+import uploadService from "@/services/uploadService";
+import OverwriteFilesPopUpContent from "@/components/OverwriteFilesPopUpContent.vue";
 
 export const useFileManager = (instanceId?: string, daemonId?: string) => {
   const dataSource = ref<DataType[]>();
@@ -343,54 +344,96 @@ export const useFileManager = (instanceId?: string, daemonId?: string) => {
     }
   };
 
-  const percentComplete = ref(0);
-
   const spinning = ref(false);
 
-  const selectedFile = async (file: File) => {
-    const { execute: uploadFile } = uploadFileApi();
-    const { state: uploadCfg, execute: getUploadCfg } = uploadAddress();
-    try {
-      percentComplete.value = 1;
-      await getUploadCfg({
-        params: {
-          upload_dir: breadcrumbs[breadcrumbs.length - 1].path,
-          daemonId: daemonId!,
-          uuid: instanceId!
-        }
-      });
-      if (!uploadCfg.value) {
-        percentComplete.value = 0;
-        throw new Error(t("TXT_CODE_e8ce38c2"));
+  const selectedFiles = async (files: File[]) => {
+    const { state: missionCfg, execute: getUploadMissionCfg } = uploadAddress();
+    const fileSet = new Set(files.map((f) => ({ file: f, overwrite: false })));
+    const existingFiles: typeof fileSet = new Set();
+
+    for (const f of fileSet) {
+      if (dataSource.value?.find((dataType) => dataType.name === f.file.name)) {
+        existingFiles.add(f);
       }
-
-      const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
-
-      await uploadFile({
-        data: uploadFormData,
-        timeout: Number.MAX_VALUE,
-        url: `${parseForwardAddress(uploadCfg.value.addr, "http")}/upload/${
-          uploadCfg.value.password
-        }`,
-        onUploadProgress: (progressEvent: any) => {
-          const p = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          if (p >= 1) percentComplete.value = p;
-        }
-      });
-      await getFileList();
-      percentComplete.value = 0;
-      return message.success(t("TXT_CODE_773f36a0"));
-    } catch (err: any) {
-      console.error(err);
-      percentComplete.value = 0;
-      return reportErrorMsg(err.response?.data || err.message);
     }
-  };
 
-  const beforeUpload: UploadProps["beforeUpload"] = async (file) => {
-    await selectedFile(file);
-    return false;
+    for (const f of existingFiles) {
+      const all = ref(false);
+      const overwrite = ref(false);
+      const confirmPromise = new Promise<boolean>((onComplete) => {
+        Modal.confirm({
+          title: t("TXT_CODE_99ca8563"),
+          icon: createVNode(ExclamationCircleOutlined),
+          content: createVNode(
+            OverwriteFilesPopUpContent,
+            {
+              count: existingFiles.size,
+              fileName: f.file.name,
+              all: all,
+              overwrite: overwrite,
+              "onUpdate:all": (val: boolean) => (all.value = val),
+              "onUpdate:overwrite": (val: boolean) => (overwrite.value = val)
+            },
+            null
+          ),
+          okText: t("TXT_CODE_ae09d79d"),
+          cancelText: t("TXT_CODE_518528d0"),
+          onOk() {
+            onComplete(true);
+          },
+          onCancel() {
+            onComplete(false);
+          }
+        });
+      });
+      if (await confirmPromise) {
+        if (all.value) {
+          for (const f of existingFiles) {
+            f.overwrite = overwrite.value;
+          }
+          break;
+        }
+        f.overwrite = overwrite.value;
+        existingFiles.delete(f);
+      } else {
+        // skip
+        if (all.value) {
+          for (const f of existingFiles) {
+            fileSet.delete(f);
+          }
+          break;
+        }
+        existingFiles.delete(f);
+        fileSet.delete(f);
+      }
+    }
+
+    for (const f of fileSet) {
+      try {
+        const uploadDir = breadcrumbs[breadcrumbs.length - 1].path;
+        await getUploadMissionCfg({
+          params: {
+            upload_dir: uploadDir,
+            daemonId: daemonId!,
+            uuid: instanceId!,
+            file_name: f.file.name
+          }
+        });
+        if (!missionCfg.value) {
+          throw new Error(t("TXT_CODE_e8ce38c2"));
+        }
+
+        uploadService.append(
+          f.file,
+          parseForwardAddress(missionCfg.value.addr, "http"),
+          missionCfg.value.password,
+          f.overwrite
+        );
+      } catch (err: any) {
+        console.error(err);
+        return reportErrorMsg(err.response?.data || err.message);
+      }
+    }
   };
 
   const selectChanged = (_selectedRowKeys: Key[], selectedRows: DataType[]) => {
@@ -427,6 +470,7 @@ export const useFileManager = (instanceId?: string, daemonId?: string) => {
         disabled: false
       });
       operationForm.value.name = "";
+      operationForm.value.current = 1;
       await getFileList(true);
     } catch (error: any) {
       breadcrumbs.splice(breadcrumbs.length - 1, 1);
@@ -436,26 +480,32 @@ export const useFileManager = (instanceId?: string, daemonId?: string) => {
     }
   };
 
-  const downloadFile = async (fileName: string) => {
+  const getFileLink = async (fileName: string, frontDir?: string) => {
+    frontDir = frontDir || breadcrumbs[breadcrumbs.length - 1].path;
     const { state: downloadCfg, execute: getDownloadCfg } = downloadAddress();
+
     try {
       await getDownloadCfg({
         params: {
-          file_name: breadcrumbs[breadcrumbs.length - 1].path + fileName,
-          daemonId: daemonId!,
-          uuid: instanceId!
+          file_name: frontDir + fileName,
+          daemonId: daemonId || "",
+          uuid: instanceId || ""
         }
       });
-      if (!downloadCfg.value) throw new Error(t("TXT_CODE_6d772765"));
-      window.open(
-        `${parseForwardAddress(downloadCfg.value.addr, "http")}/download/${
-          downloadCfg.value.password
-        }/${fileName}`
-      );
+      if (!downloadCfg.value) return null;
+      return `${parseForwardAddress(downloadCfg.value.addr, "http")}/download/${
+        downloadCfg.value.password
+      }/${fileName}`;
     } catch (err: any) {
       console.error(err);
       return reportErrorMsg(err.message);
     }
+  };
+
+  const downloadFile = async (fileName: string) => {
+    const link = await getFileLink(fileName);
+    if (!link) throw new Error(t("TXT_CODE_6d772765"));
+    window.open(link);
   };
 
   const handleChangeDir = async (dir: string) => {
@@ -464,6 +514,7 @@ export const useFileManager = (instanceId?: string, daemonId?: string) => {
     spinning.value = true;
     breadcrumbs.splice(breadcrumbs.findIndex((e) => e.path === dir) + 1);
     operationForm.value.name = "";
+    operationForm.value.current = 1;
     await getFileList();
     spinning.value = false;
   };
@@ -471,9 +522,14 @@ export const useFileManager = (instanceId?: string, daemonId?: string) => {
   const handleTableChange = (e: { current: number; pageSize: number }) => {
     selectedRowKeys.value = [];
     selectionData.value = [];
-    operationForm.value.name = "";
+    // operationForm.value.name = "";
     operationForm.value.current = e.current;
     operationForm.value.pageSize = e.pageSize;
+    getFileList();
+  };
+
+  const handleSearchChange = () => {
+    operationForm.value.current = 1;
     getFileList();
   };
 
@@ -556,20 +612,30 @@ export const useFileManager = (instanceId?: string, daemonId?: string) => {
   const toDisk = async (disk: string) => {
     breadcrumbs.splice(0, breadcrumbs.length);
     breadcrumbs.push({
-      path: disk + ":\\",
+      path: disk === "/" ? disk : disk + ":\\",
       name: "/",
       disabled: false
     });
     spinning.value = true;
     operationForm.value.name = "";
+    operationForm.value.current = 1;
     await getFileList();
     spinning.value = false;
+  };
+
+  const isImage = (extName: string) => {
+    if (!extName) return;
+    return ["JPG", "JPEG", "PNG", "GIF", "BMP", "WEBP", "ICO"].includes(extName.toUpperCase());
+  };
+
+  const showImage = (file: DataType) => {
+    const frontDir = breadcrumbs[breadcrumbs.length - 1].path;
+    useImageViewerDialog(instanceId || "", daemonId || "", file.name, frontDir);
   };
 
   return {
     fileStatus,
     dialog,
-    percentComplete,
     spinning,
     operationForm,
     dataSource,
@@ -591,16 +657,19 @@ export const useFileManager = (instanceId?: string, daemonId?: string) => {
     deleteFile,
     zipFile,
     unzipFile,
-    beforeUpload,
-    selectedFile,
+    selectedFiles,
     rowClickTable,
     downloadFile,
+    getFileLink,
     handleChangeDir,
     handleTableChange,
+    handleSearchChange,
     getFileStatus,
     changePermission,
     toDisk,
     pushSelected,
-    oneSelected
+    oneSelected,
+    isImage,
+    showImage
   };
 };

@@ -8,6 +8,9 @@ import { t } from "@/lang/i18n";
 import type { AntColumnsType } from "@/types/ant";
 import UploadFileDialogVue from "./UploadFileDialog.vue";
 import TaskLoadingDialog from "./TaskLoadingDialog.vue";
+import TagsDialog from "./TagsDialog.vue";
+import DeleteInstanceDialog from "@/widgets/instance/dialogs/DeleteInstanceDialog.vue";
+import ImageViewerDialog from "@/widgets/instance/dialogs/ImageViewer.vue";
 
 interface DockerConfigItem {
   host: string;
@@ -64,19 +67,23 @@ export async function usePortEditDialog(data: PortConfigItem[] = []) {
         {
           align: "center",
           dataIndex: "host",
-          title: t("TXT_CODE_534db0b2")
+          title: t("TXT_CODE_534db0b2"),
+          placeholder: "eg: 8080"
         },
         {
           align: "center",
           dataIndex: "container",
-          title: t("TXT_CODE_b729d2e")
+          title: t("TXT_CODE_b729d2e"),
+          placeholder: "eg: 25565"
         },
         {
           align: "center",
           dataIndex: "protocol",
-          title: t("TXT_CODE_ad1c674c")
+          title: t("TXT_CODE_ad1c674c"),
+          placeholder: "tcp/udp"
         }
-      ] as AntColumnsType[]
+      ] as AntColumnsType[],
+      textarea: false
     }).mount<PortConfigItem[]>(KvOptionsDialogVue)) || []
   );
 }
@@ -85,6 +92,7 @@ export async function useVolumeEditDialog(data: DockerConfigItem[] = []) {
   return (
     (await useMountComponent({
       data,
+      subTitle: t("TXT_CODE_6c232c9c"),
       title: t("TXT_CODE_820ebc92"),
       columns: [
         {
@@ -97,7 +105,8 @@ export async function useVolumeEditDialog(data: DockerConfigItem[] = []) {
           dataIndex: "container",
           title: t("TXT_CODE_30258325")
         }
-      ] as AntColumnsType[]
+      ] as AntColumnsType[],
+      textarea: true
     }).mount<DockerConfigItem[]>(KvOptionsDialogVue)) || []
   );
 }
@@ -118,18 +127,48 @@ export async function useDockerEnvEditDialog(data: DockerEnvItem[] = []) {
           dataIndex: "value",
           title: t("TXT_CODE_115e8a25")
         }
-      ] as AntColumnsType[]
+      ] as AntColumnsType[],
+      textarea: true
     }).mount<DockerEnvItem[]>(KvOptionsDialogVue)) || []
   );
 }
 
 export async function openLoadingDialog(title: string, text: string, subTitle?: string) {
-  const component = (
-    await useMountComponent({
-      title,
-      text,
-      subTitle
-    })
-  ).load<InstanceType<typeof TaskLoadingDialog>>(TaskLoadingDialog);
+  const component = useMountComponent({
+    title,
+    text,
+    subTitle
+  }).load<InstanceType<typeof TaskLoadingDialog>>(TaskLoadingDialog);
   return component;
+}
+
+export async function openInstanceTagsEditor(
+  instanceId: string,
+  daemonId: string,
+  tags: string[],
+  tagsTips?: string[]
+) {
+  return await useMountComponent({
+    instanceId,
+    daemonId,
+    tagsTips,
+    tags
+  })
+    .load<InstanceType<typeof TagsDialog>>(TagsDialog)
+    .openDialog();
+}
+
+export async function useDeleteInstanceDialog(instanceId: string, daemonId: string) {
+  return await useMountComponent({ instanceId, daemonId }).mount<boolean>(DeleteInstanceDialog);
+}
+
+export async function useImageViewerDialog(
+  instanceId: string,
+  daemonId: string,
+  fileName: string,
+  frontDir: string
+) {
+  return await useMountComponent({ instanceId, daemonId, fileName, frontDir }).mount(
+    ImageViewerDialog
+  );
 }

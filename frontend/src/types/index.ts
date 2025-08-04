@@ -1,20 +1,11 @@
 /* eslint-disable no-unused-vars */
-import type {
-  IGlobalInstanceConfig,
-  ILayoutCard as GlobalLayoutCard,
-  ILayoutCardParams as GlobalLayoutCardParams,
-  IJsonData,
-  IMapData,
-  IGlobalInstanceDockerConfig,
-  IQuickStartTemplate,
-  IQuickStartPackages
-} from "../../../common/global";
-import type { INSTANCE_STATUS_CODE } from "./const";
+import type { Dayjs } from "dayjs";
+import type { INSTANCE_STATUS_CODE, ScheduleCreateType } from "./const";
 
 export type JsonData = IJsonData;
 export type MapData<T> = IMapData<T>;
-export type LayoutCardParams = GlobalLayoutCardParams;
-export type LayoutCard = GlobalLayoutCard;
+export type LayoutCardParams = ILayoutCardParams;
+export type LayoutCard = ILayoutCard;
 
 export interface LayoutWithRouter {
   page: string;
@@ -34,12 +25,22 @@ export interface InstanceDetail {
   started: number;
   status: INSTANCE_STATUS_CODE;
   info: {
+    mcPingOnline: boolean;
     currentPlayers: number;
-    fileLock: number;
     maxPlayers: number;
-    openFrpStatus: boolean;
-    playersChart: any[];
     version: string;
+    fileLock: number;
+    playersChart: Array<{ value: string }>;
+    openFrpStatus: boolean;
+    latency: number;
+    cpuUsage?: number;
+    memoryUsagePercent?: number;
+    rxBytes?: number;
+    txBytes?: number;
+    readBytes?: number;
+    writeBytes?: number;
+    memoryUsage?: number;
+    memoryLimit?: number;
   };
   config: IGlobalInstanceConfig;
   watcher?: number;
@@ -64,6 +65,7 @@ export interface Settings {
   maxCompress: number;
   maxDownload: number;
   zipType: number;
+  totpDriftToleranceSteps: number;
   loginCheckIp: boolean;
   loginInfo: string;
   canFileManager: boolean;
@@ -71,6 +73,9 @@ export interface Settings {
   presetPackAddr: string;
   redisUrl: string;
   allowUsePreset: boolean;
+  businessMode: boolean;
+  businessId: string;
+  allowChangeCmd: boolean;
 }
 
 export interface ImageInfo {
@@ -219,10 +224,17 @@ export interface Schedule {
 
 export interface NewScheduleTask {
   name: string;
-  count: string;
+  count: number;
   time: string;
   action: string;
-  type: string;
+  type: ScheduleCreateType;
+}
+
+export interface ScheduleTaskForm extends NewScheduleTask {
+  payload: string;
+  weekend: number[];
+  cycle: string[];
+  objTime: Dayjs;
 }
 
 export interface PanelStatus {
@@ -232,5 +244,8 @@ export interface PanelStatus {
   settings: {
     canFileManager: boolean;
     allowUsePreset: boolean;
+    businessMode: boolean;
+    businessId: string;
+    allowChangeCmd: boolean;
   };
 }

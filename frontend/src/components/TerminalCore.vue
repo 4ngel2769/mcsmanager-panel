@@ -2,14 +2,15 @@
 import { onMounted, ref } from "vue";
 import { t } from "@/lang/i18n";
 import { CodeOutlined, DeleteOutlined, LoadingOutlined } from "@ant-design/icons-vue";
-import { useTerminal } from "../hooks/useTerminal";
+import { encodeConsoleColor, useTerminal } from "../hooks/useTerminal";
 import { getInstanceOutputLog } from "@/services/apis/instance";
 import { message } from "ant-design-vue";
 import connectErrorImage from "@/assets/daemon_connection_error.png";
-import { Terminal } from "xterm";
+import { Terminal } from "@xterm/xterm";
 import { useCommandHistory } from "@/hooks/useCommandHistory";
 import { useLayoutContainerStore } from "@/stores/useLayoutContainerStore";
 import { getRandomId } from "../tools/randId";
+import { useXhrPollError } from "@/hooks/useXhrPollError";
 
 const props = defineProps<{
   instanceId: string;
@@ -28,7 +29,7 @@ const {
   clickHistoryItem
 } = useCommandHistory();
 
-const { execute, initTerminalWindow, sendCommand, events, isConnect, socketAddress } =
+const { execute, initTerminalWindow, sendCommand, state, events, isConnect, socketAddress } =
   useTerminal();
 
 const instanceId = props.instanceId;
@@ -37,6 +38,7 @@ const daemonId = props.daemonId;
 const terminalDomId = `terminal-window-${getRandomId()}`;
 
 const socketError = ref<Error>();
+const { isXhrPollError, xhrPollErrorReason } = useXhrPollError(socketError);
 
 let term: Terminal | undefined;
 
@@ -58,12 +60,6 @@ const initTerminal = async () => {
   const dom = document.getElementById(terminalDomId);
   if (dom) {
     const term = initTerminalWindow(dom);
-    try {
-      const { value } = await getInstanceOutputLog().execute({
-        params: { uuid: instanceId || "", daemonId: daemonId || "" }
-      });
-      if (value) term.write(value);
-    } catch (error: any) {}
     return term;
   }
   throw new Error(t("TXT_CODE_42bcfe0c"));
@@ -79,6 +75,22 @@ events.on("stopped", () => {
 
 events.on("error", (error: Error) => {
   socketError.value = error;
+});
+
+events.once("detail", async () => {
+  try {
+    const { value } = await getInstanceOutputLog().execute({
+      params: { uuid: instanceId || "", daemonId: daemonId || "" }
+    });
+
+    if (value) {
+      if (state.value?.config?.terminalOption?.haveColor) {
+        term?.write(encodeConsoleColor(value));
+      } else {
+        term?.write(value);
+      }
+    }
+  } catch (error: any) {}
 });
 
 const clearTerminal = () => {
@@ -174,6 +186,32 @@ onMounted(async () => {
         <a-typography-title :level="5">{{ $t("TXT_CODE_9c95b60f") }}</a-typography-title>
         <a-typography-paragraph>
           <pre style="font-size: 12px"><code>{{ socketError?.message||"" }}</code></pre>
+
+          <div v-if="isXhrPollError" style="font-size: 12px">
+            <span> {{ xhrPollErrorReason }}</span>
+          </div>
+        </a-typography-paragraph>
+        <a-typography-paragraph v-if="isXhrPollError">
+          <div class="flex" style="gap: 8px; font-size: 12px">
+            <span>
+              <strong>{{ $t("TXT_CODE_d4c8fb3b") }}</strong>
+            </span>
+            <a
+              href="https://docs.mcsmanager.com/ops/proxy_https.html"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ $t("TXT_CODE_9b3ce825") }}
+            </a>
+            <span>|</span>
+            <a
+              href="https://docs.mcsmanager.com/ops/mcsm_network.html"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ $t("TXT_CODE_10cc2794") }}
+            </a>
+          </div>
         </a-typography-paragraph>
         <a-typography-title :level="5">{{ $t("TXT_CODE_f1c96d8a") }}</a-typography-title>
         <a-typography-paragraph>
@@ -186,9 +224,6 @@ onMounted(async () => {
             </li>
             <li>
               {{ $t("TXT_CODE_86ff658a") }}
-            </li>
-            <li>
-              {{ $t("TXT_CODE_9c188ec8") }}
             </li>
           </ul>
           <div class="flex flex-center">

@@ -4,7 +4,7 @@ import fs from "fs-extra";
 import { compress, decompress } from "../common/compress";
 import iconv from "iconv-lite";
 import { globalConfiguration } from "../entity/config";
-import { ProcessWrapper } from "common";
+import { ProcessWrapper } from "mcsmanager-common";
 import os from "os";
 
 const ERROR_MSG_01 = $t("TXT_CODE_system_file.illegalAccess");
@@ -39,7 +39,10 @@ export default class FileManager {
 
   toAbsolutePath(fileName: string = "") {
     const topAbsolutePath = this.topPath;
-    let finalPath: string = "";
+
+    if (path.normalize(fileName).indexOf(topAbsolutePath) === 0) return fileName;
+
+    let finalPath = "";
     if (os.platform() === "win32") {
       const reg = new RegExp("^[A-Za-z]{1}:[\\\\/]{1}");
       if (reg.test(this.cwd)) {
@@ -48,10 +51,17 @@ export default class FileManager {
         finalPath = path.normalize(fileName);
       }
     }
+
     if (!finalPath) {
       finalPath = path.normalize(path.join(this.topPath, this.cwd, fileName));
     }
-    if (finalPath.indexOf(topAbsolutePath) !== 0) throw new Error(ERROR_MSG_01);
+
+    if (
+      finalPath.indexOf(topAbsolutePath) !== 0 &&
+      topAbsolutePath !== "/" &&
+      topAbsolutePath !== "\\"
+    )
+      throw new Error(ERROR_MSG_01);
     return finalPath;
   }
 

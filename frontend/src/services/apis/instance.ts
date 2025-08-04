@@ -5,10 +5,8 @@ import type {
   QuickStartTemplate,
   Schedule,
   NewScheduleTask,
-  LabelValueOption,
   JsonData
 } from "@/types";
-import type { IGlobalInstanceConfig } from "../../../../common/global";
 
 export interface MissionPassportResponse {
   addr: string;
@@ -146,6 +144,7 @@ export const updateInstanceConfig = useDefineApi<
       crlf?: number;
       ie?: string;
       oe?: string;
+      tag?: string[];
       stopCommand?: string;
       eventTask?: {
         autoRestart: boolean;
@@ -375,6 +374,19 @@ export const batchKill = useDefineApi<
 >({
   method: "POST",
   url: "/api/instance/multi_kill"
+});
+
+export const batchRestart = useDefineApi<
+  {
+    data: {
+      instanceUuid: string;
+      daemonId: string;
+    }[];
+  },
+  boolean
+>({
+  method: "POST",
+  url: "/api/instance/multi_restart"
 });
 
 export const batchDelete = useDefineApi<

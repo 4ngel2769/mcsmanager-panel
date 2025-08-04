@@ -10,11 +10,14 @@ export enum THEME {
 
 export const THEME_KEY = "THEME_KEY";
 
-const defaultTheme = localStorage.getItem(THEME_KEY) || THEME.LIGHT;
+export function getSystemTheme() {
+  const darkModeMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  return darkModeMediaQuery.matches ? THEME.DARK : THEME.LIGHT;
+}
+
+const defaultTheme = localStorage.getItem(THEME_KEY) || getSystemTheme();
 
 export const useAppConfigStore = createGlobalState(() => {
-  // const { hasBgImage } = useLayoutConfigStore();
-
   const appConfig = reactive({
     theme: defaultTheme as THEME
   });
@@ -48,7 +51,7 @@ export const useAppConfigStore = createGlobalState(() => {
       body.style.backgroundPosition = "center";
       body.style.backgroundRepeat = "no-repeat";
       isDarkTheme()
-        ? (body.style.backgroundImage = `linear-gradient(135deg, rgba(0,0,0,0.3), rgba(0,0,0,0.3) 100%), url(${url})`)
+        ? (body.style.backgroundImage = `linear-gradient(135deg, rgba(0,0,0,0.65), rgba(0,0,0,0.65) 100%), url(${url})`)
         : (body.style.backgroundImage = `linear-gradient(135deg, rgba(220,220,220,0.3), rgba(53,53,53,0.3) 100%), url(${url})`);
     }
   };
