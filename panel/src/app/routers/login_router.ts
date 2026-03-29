@@ -22,6 +22,10 @@ router.post(
   permission({ token: false, level: null }),
   validator({ body: { username: String, password: String } }),
   async (ctx: Koa.ParameterizedContext) => {
+    if (systemConfig?.ssoEnabled && systemConfig?.ssoOnlyMode) {
+      ctx.body = new Error("Password login is disabled. Please use SSO.");
+      return;
+    }
     const userName = String(ctx.request.body.username);
     const passWord = String(ctx.request.body.password);
     const code = String(ctx.request.body.code);
@@ -29,12 +33,22 @@ router.post(
     if (check(ctx)) return (ctx.body = "Logined");
     try {
       ctx.body = login(ctx, userName, passWord, code);
+      operationLogger.info("user_login", {
+        operator_ip: ctx.ip,
+        operator_name: userName,
+        login_result: true
+      });
     } catch (error: any) {
       if (error instanceof TwoFactorError && !code) {
         ctx.body = "NEED_2FA";
         return;
       }
       ctx.body = error;
+      operationLogger.warning("user_login", {
+        operator_ip: ctx.ip,
+        operator_name: userName,
+        login_result: false
+      });
     }
   }
 );
@@ -81,7 +95,10 @@ router.all(
         allowUsePreset: systemConfig?.allowUsePreset || false,
         businessMode: systemConfig?.businessMode || false,
         businessId: systemConfig?.businessId || null,
-        allowChangeCmd: systemConfig?.allowChangeCmd || false
+        allowChangeCmd: systemConfig?.allowChangeCmd || false,
+        panelId: systemConfig?.panelId || null,
+        ssoEnabled: systemConfig?.ssoEnabled || false,
+        ssoOnlyMode: systemConfig?.ssoOnlyMode || false
       } as Partial<SystemConfig>
     };
   }

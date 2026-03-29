@@ -1,45 +1,43 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
-import AppConfigProvider from "./components/AppConfigProvider.vue";
-import { RouterView } from "vue-router";
-import AppHeader from "./components/AppHeader.vue";
+import UploadBubble from "@/components/UploadBubble.vue";
+import { useScreen } from "@/hooks/useScreen";
 import { useAppConfigStore } from "@/stores/useAppConfigStore";
+
+import { Button, Input, Select, Table } from "ant-design-vue";
+import { computed, onMounted } from "vue";
+import { RouterView } from "vue-router";
+import AppBottomNav from "./components/AppBottomNav.vue";
+import AppConfigProvider from "./components/AppConfigProvider.vue";
+import AppHeader from "./components/AppHeader.vue";
+import AppSidebarMenu from "./components/AppSidebarMenu.vue";
+import Breadcrumbs from "./components/Breadcrumbs.vue";
 import InputDialogProvider from "./components/InputDialogProvider.vue";
-import { Button, Select, Input, Table } from "ant-design-vue";
 import MyselfInfoDialog from "./components/MyselfInfoDialog.vue";
-import { closeAppLoading } from "./tools/dom";
-import { useLayoutConfigStore } from "./stores/useLayoutConfig";
+import { useAppStateStore } from "./stores/useAppStateStore";
+import { useLayoutContainerStore } from "./stores/useLayoutContainerStore";
+import { closeAppLoading, setLoadingTitle } from "./tools/dom";
 
-const { isDarkTheme, setBackgroundImage } = useAppConfigStore();
-const { getSettingsConfig, hasBgImage } = useLayoutConfigStore();
+const { hasBgImage, initAppTheme, useSidebarLayout } = useAppConfigStore();
+const { containerState } = useLayoutContainerStore();
+const { state: appState } = useAppStateStore();
+const { isPhone } = useScreen();
 
-const GLOBAL_COMPONENTS = [InputDialogProvider, MyselfInfoDialog];
-
-function setBackground(url: string) {
-  const body = document.querySelector("body");
-  if (body) {
-    setBackgroundImage(url);
-    isDarkTheme()
-      ? body.classList.add("app-dark-extend-theme")
-      : body.classList.add("app-light-extend-theme");
-  }
-  hasBgImage.value = true;
-}
-
-if (isDarkTheme()) {
-  document.body.classList.add("app-dark-theme");
-} else {
-  document.body.classList.add("app-light-theme");
-}
+const GLOBAL_COMPONENTS = [InputDialogProvider, MyselfInfoDialog, UploadBubble];
 
 [Button, Select, Input, Table].forEach((element) => {
   element.props.size.default = "large";
 });
 
+const designModeNavStyle = computed(() => {
+  if (!appState.userInfo) return {};
+  return {
+    zIndex: containerState.isDesignMode ? 997 : 1
+  };
+});
+
 onMounted(async () => {
-  const frontendSettings = await getSettingsConfig();
-  if (frontendSettings?.theme?.backgroundImage)
-    setBackground(frontendSettings.theme.backgroundImage);
+  setLoadingTitle("Loading application settings...");
+  await initAppTheme();
   closeAppLoading();
 });
 </script>
@@ -48,9 +46,16 @@ onMounted(async () => {
   <AppConfigProvider :has-bg-image="hasBgImage">
     <!-- App Container -->
     <div class="global-app-container">
-      <AppHeader />
-      <RouterView :key="$route.fullPath" />
+      <AppSidebarMenu v-if="useSidebarLayout" :style="designModeNavStyle" />
+      <main class="main-content" :class="{ 'app-layout-sidebar-only': useSidebarLayout }">
+        <AppHeader v-if="!useSidebarLayout" :style="designModeNavStyle" />
+        <Breadcrumbs />
+        <RouterView :key="$route.fullPath" />
+      </main>
     </div>
+
+    <!-- Mobile Bottom Navigation -->
+    <AppBottomNav v-if="isPhone && !useSidebarLayout" />
 
     <!-- Global Components -->
     <component :is="component" v-for="(component, index) in GLOBAL_COMPONENTS" :key="index" />

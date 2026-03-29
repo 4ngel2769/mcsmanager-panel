@@ -1,12 +1,10 @@
-import Instance from "./instance";
 import os from "os";
+import Instance from "./instance";
 
 interface IActionCommand {
   name: string;
   command: string;
 }
-
-type ProcessType = "general" | "docker";
 
 // @Entity
 export default class InstanceConfig implements IGlobalInstanceConfig {
@@ -23,10 +21,14 @@ export default class InstanceConfig implements IGlobalInstanceConfig {
   public endTime: number = 0;
   public fileCode: string = "utf-8";
   public processType: ProcessType = "general";
+
+  /** The command used for executing the update command */
   public updateCommand: string = "";
+
   public runAs: string = "";
   public crlf = os.platform() === "win32" ? 2 : 1; // 1: \n  2: \r\n
   public category = 0;
+  public basePort = 0;
 
   // Steam RCON protocol
   public enableRcon = false;
@@ -49,16 +51,31 @@ export default class InstanceConfig implements IGlobalInstanceConfig {
   public eventTask = {
     autoStart: false,
     autoRestart: false,
+    autoRestartMaxTimes: -1,
     ignore: false
+  };
+
+  // java
+  public java: IInstanceJavaConfig = {
+    id: ""
   };
 
   // Extend
   public docker: IGlobalInstanceDockerConfig = {
+    updateCommandImage: "",
     containerName: "",
     image: "",
+    uploadSpeedLimit: 0,
+    downloadSpeedLimit: 0,
     ports: [],
     extraVolumes: [],
+    capAdd: [],
+    capDrop: [],
+    devices: [],
+    privileged: false,
     memory: 0,
+    memorySwap: undefined,
+    memorySwappiness: undefined,
     networkMode: "bridge",
     networkAliases: [],
     cpusetCpus: "",
@@ -66,9 +83,14 @@ export default class InstanceConfig implements IGlobalInstanceConfig {
     maxSpace: 0,
     io: 0,
     network: 0,
-    workingDir: "/workspace/",
+    workingDir: "/data",
     env: [],
-    changeWorkdir: true
+    changeWorkdir: true,
+    labels: [],
+    gpuEnabled: false,
+    gpuCount: -1,
+    gpuDeviceIds: [],
+    gpuDriver: "nvidia"
   };
 
   public pingConfig = {

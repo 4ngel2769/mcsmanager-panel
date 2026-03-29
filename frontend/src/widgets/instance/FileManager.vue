@@ -1,10 +1,19 @@
 <script setup lang="ts">
+import BetweenMenus from "@/components/BetweenMenus.vue";
 import CardPanel from "@/components/CardPanel.vue";
-import type { LayoutCard } from "@/types";
-import { ref, computed, onMounted, onUnmounted, h, type CSSProperties, watch } from "vue";
+import { useDownloadFileDialog } from "@/components/fc";
+import { useLayoutCardTools } from "@/hooks/useCardTools";
+import { useFileManager } from "@/hooks/useFileManager";
+import { useRightClickMenu } from "@/hooks/useRightClickMenu";
+import { useScreen } from "@/hooks/useScreen";
 import { getCurrentLang, t } from "@/lang/i18n";
+import uploadService from "@/services/uploadService";
+import { arrayFilter } from "@/tools/array";
+import { filterFileName, getFileExtName, getFileIcon, isCompressFile } from "@/tools/fileManager";
 import { convertFileSize } from "@/tools/fileSize";
-import dayjs from "dayjs";
+import type { LayoutCard } from "@/types";
+import type { AntColumnsType } from "@/types/ant";
+import type { DataType } from "@/types/fileManager";
 import {
   CaretRightOutlined,
   CloseOutlined,
@@ -25,18 +34,10 @@ import {
   SearchOutlined,
   UploadOutlined
 } from "@ant-design/icons-vue";
-import BetweenMenus from "@/components/BetweenMenus.vue";
-import { useScreen } from "@/hooks/useScreen";
-import { arrayFilter } from "@/tools/array";
-import { useLayoutCardTools } from "@/hooks/useCardTools";
-import { filterFileName, getFileExtName, getFileIcon } from "@/tools/fileManager";
-import { useFileManager } from "@/hooks/useFileManager";
+import { Modal, type ItemType, type UploadChangeParam, type UploadProps } from "ant-design-vue";
+import dayjs from "dayjs";
+import { computed, h, onMounted, onUnmounted, ref, watch, type CSSProperties } from "vue";
 import FileEditor from "./dialogs/FileEditor.vue";
-import type { DataType } from "@/types/fileManager";
-import type { AntColumnsType } from "@/types/ant";
-import { useRightClickMenu } from "@/hooks/useRightClickMenu";
-import { type ItemType, Modal, type UploadChangeParam, type UploadProps } from "ant-design-vue";
-import uploadService from "@/services/uploadService";
 
 const props = defineProps<{
   card: LayoutCard;
@@ -57,9 +58,14 @@ const {
   operationForm,
   dataSource,
   breadcrumbs,
+  currentPath,
   clipboard,
   currentDisk,
   isMultiple,
+  activeTab,
+  currentTabs,
+  onEditTabs,
+  handleChangeTab,
   selectChanged,
   getFileList,
   touchFile,
@@ -71,6 +77,7 @@ const {
   zipFile,
   unzipFile,
   downloadFile,
+  downloadFromUrl,
   handleChangeDir,
   handleSearchChange,
   selectedFiles,
@@ -161,6 +168,16 @@ const progress = computed(() => {
   return 0;
 });
 const uploadData = uploadService.uiData;
+const uploadInstanceTag = computed(() => {
+  if (
+    !uploadData.value.instanceInfo ||
+    uploadData.value.instanceInfo.instanceId != instanceId ||
+    uploadData.value.instanceInfo.daemonId != daemonId
+  ) {
+    return `(${t("TXT_CODE_59c0c994")})`;
+  }
+  return "";
+});
 watch(
   () => uploadService.uiData.value,
   (newValue) => {
@@ -233,7 +250,7 @@ const onFileSelect = (info: UploadChangeParam) => {
 };
 
 const editFile = (fileName: string) => {
-  const path = breadcrumbs[breadcrumbs.length - 1].path + fileName;
+  const path = currentPath.value + fileName;
   FileEditorDialog.value?.openDialog(path, fileName);
 };
 
@@ -271,7 +288,7 @@ const menuList = (record: DataType) =>
       key: "unzip",
       icon: h(FileZipOutlined),
       onClick: () => unzipFile(record.name),
-      condition: () => record.type === 1 && getFileExtName(record.name) === "zip"
+      condition: () => record.type === 1 && isCompressFile(record.name)
     },
     {
       label: t("TXT_CODE_ad207008"),
@@ -311,7 +328,7 @@ const menuList = (record: DataType) =>
       key: "changePermission",
       icon: h(KeyOutlined),
       onClick: () => changePermission(record.name, record.mode),
-      condition: () => !isMultiple.value && fileStatus.value?.platform !== "win32"
+      condition: () => fileStatus.value?.platform !== "win32"
     },
     {
       label: t("TXT_CODE_88122886"),
@@ -338,10 +355,24 @@ const handleRightClickRow = (e: MouseEvent, record: DataType) => {
   return false;
 };
 
+const downloadFromURLFile = async () => {
+  const data = await useDownloadFileDialog();
+  if (!data) return;
+  await downloadFromUrl(data);
+};
+
 onMounted(async () => {
   await getFileStatus();
   dialog.value.loading = true;
-  await getFileList();
+
+  if (currentTabs.value.length) {
+    const thisTab = currentTabs.value[0];
+    activeTab.value = thisTab.key;
+    await getFileList(false, thisTab.path);
+  } else {
+    await getFileList(false);
+  }
+
   dialog.value.loading = false;
 });
 
@@ -370,6 +401,10 @@ onUnmounted(() => {
               }}
             </a-typography-text>
 
+            <a-button type="dashed" @click="() => downloadFromURLFile()">
+              <download-outlined />
+              {{ t("TXT_CODE_5b364aef") }}
+            </a-button>
             <a-upload
               v-model:file-list="fileList"
               :before-upload="() => false"
@@ -460,12 +495,21 @@ onUnmounted(() => {
         >
           <template #body>
             <div v-if="uploadData.current" class="flex-nowrap w-100">
-              <a-typography-text :ellipsis="true">
-                {{ uploadData.currentFile }}
-              </a-typography-text>
+              <a-typography-text
+                :ellipsis="true"
+                :content="`${uploadData.currentFile} ${uploadInstanceTag}`.trim()"
+              />
               <a-typography-text style="padding-left: 5px; white-space: nowrap">
                 ({{ uploadData.files[0] }}/{{ uploadData.files[1] }})
               </a-typography-text>
+              <div class="flex" style="margin-left: 5px; padding: 3px; gap: 3px">
+                <upload-task-progress
+                  v-for="(uTask, i) in uploadService.task.filter((v) => v)"
+                  :key="i"
+                  :progress="uTask!.progress / (uTask!.rangeEnd - uTask!.rangeStart)"
+                  :retries="uTask!.retries"
+                />
+              </div>
               <caret-right-outlined
                 v-if="uploadData.suspending"
                 style="margin-left: 5px"
@@ -499,6 +543,16 @@ onUnmounted(() => {
                 {{ convertFileSize(uploadData.current![1].toString()) }}
               </a-typography-text>
             </div>
+            <a-tabs
+              v-model:activeKey="activeTab"
+              type="editable-card"
+              @edit="onEditTabs"
+              @change="(key) => handleChangeTab(key as string)"
+            >
+              <a-tab-pane v-for="b in currentTabs" :key="b.key" :tab="b.name" :closable="true">
+              </a-tab-pane>
+            </a-tabs>
+
             <div class="flex-wrap items-flex-start">
               <a-select
                 v-if="isShowDiskList"
@@ -523,6 +577,13 @@ onUnmounted(() => {
               </div>
             </div>
 
+            <p
+              v-if="fileStatus?.downloadFileFromURLTask && fileStatus.downloadFileFromURLTask > 0"
+              style="color: #1677ff"
+            >
+              <a-spin />
+              {{ t("TXT_CODE_8b7fe641", { count: fileStatus?.downloadFileFromURLTask }) }}
+            </p>
             <p
               v-if="fileStatus?.instanceFileTask && fileStatus.instanceFileTask > 0"
               style="color: #1677ff"

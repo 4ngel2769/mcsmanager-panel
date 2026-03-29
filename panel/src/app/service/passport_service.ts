@@ -1,13 +1,13 @@
 import Koa from "koa";
+import { GlobalVariable } from "mcsmanager-common";
 import { authenticator } from "otplib";
 import QRCode from "qrcode";
-import userSystem from "./user_service";
-import { timeUuid } from "./password";
-import { GlobalVariable, toText } from "mcsmanager-common";
+import { ROLE, User } from "../entity/user";
+import { $t } from "../i18n";
 import { systemConfig } from "../setting";
 import { logger } from "./log";
-import { User } from "../entity/user";
-import { $t } from "../i18n";
+import { timeUuid } from "./password";
+import userSystem from "./user_service";
 
 export const BAN_IP_COUNT = "banip";
 export const LOGIN_FAILED_KEY = "loginFailed";
@@ -57,6 +57,7 @@ export function loginSuccess(ctx: Koa.ParameterizedContext, userName: string) {
   ctx.session["login"] = true;
   ctx.session["userName"] = userName;
   ctx.session["uuid"] = user.uuid;
+  ctx.session["role"] = user.permission === 10 ? ROLE.ADMIN : ROLE.USER;
   ctx.session["token"] = timeUuid();
   ctx.session.save();
 
@@ -159,6 +160,18 @@ export function getUserNameBySession(ctx: Koa.ParameterizedContext): string {
   return ctx.session?.["userName"];
 }
 
+export function getUserFromCtx(ctx: Koa.ParameterizedContext) {
+  try {
+    if (isApiRequest(ctx)) {
+      const user = getUuidByApiKey(getApiKey(ctx));
+      return user || undefined;
+    }
+    return userSystem.getInstance(ctx.session?.["uuid"] || "") || undefined;
+  } catch (error) {
+    return undefined;
+  }
+}
+
 export function getUserUuid(ctx: Koa.ParameterizedContext): string {
   if (isApiRequest(ctx)) {
     const user = getUuidByApiKey(getApiKey(ctx));
@@ -222,9 +235,9 @@ export function getUuidByApiKey(apiKey: string) {
 }
 
 export function isApiRequest(ctx: Koa.ParameterizedContext) {
-  return ctx.query.apikey ? true : false;
+  return ctx.query.apikey || ctx.request?.header["x-request-api-key"] ? true : false;
 }
 
 export function getApiKey(ctx: Koa.ParameterizedContext) {
-  return String(ctx.query.apikey);
+  return String(ctx.query.apikey || ctx.request?.header["x-request-api-key"] || "");
 }

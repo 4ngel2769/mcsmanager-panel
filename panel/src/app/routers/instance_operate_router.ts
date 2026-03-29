@@ -1,19 +1,18 @@
 import Router from "@koa/router";
-import permission, { verificationFailed } from "../middleware/permission";
-import validator from "../middleware/validator";
-import RemoteServiceSubsystem from "../service/remote_service";
-import RemoteRequest, { RemoteRequestTimeoutError } from "../service/remote_command";
-import { timeUuid } from "../service/password";
-import { getUserUuid } from "../service/passport_service";
-import { isHaveInstanceByUuid } from "../service/permission_service";
-import { $t } from "../i18n";
-import { isTopPermissionByUuid } from "../service/permission_service";
-import { isEmpty, toText, toBoolean, toNumber } from "mcsmanager-common";
+import { isEmpty, toBoolean, toNumber, toText } from "mcsmanager-common";
 import { ROLE } from "../entity/user";
-import axios from "axios";
-import { systemConfig } from "../setting";
-import { checkInstanceAdvancedParams } from "../service/instance_service";
+import { $t } from "../i18n";
+import { speedLimit } from "../middleware/limit";
+import permission from "../middleware/permission";
+import validator from "../middleware/validator";
+import { checkInstanceAdvancedParams, getAppMarketList } from "../service/instance_service";
 import { operationLogger } from "../service/operation_logger";
+import { getUserUuid } from "../service/passport_service";
+import { timeUuid } from "../service/password";
+import { isHaveInstanceByUuid, isTopPermissionByUuid } from "../service/permission_service";
+import RemoteRequest, { RemoteRequestTimeoutError } from "../service/remote_command";
+import RemoteServiceSubsystem from "../service/remote_service";
+import { systemConfig } from "../setting";
 
 const router = new Router({ prefix: "/protected_instance" });
 
@@ -174,6 +173,7 @@ router.all(
 // start asynchronous task
 router.post(
   "/asynchronous",
+  speedLimit(3),
   permission({ level: ROLE.USER }),
   validator({
     query: { daemonId: String, uuid: String, task_name: String },
@@ -199,7 +199,8 @@ router.post(
       const result = await new RemoteRequest(remoteService).request("instance/asynchronous", {
         instanceUuid,
         taskName,
-        parameter
+        parameter,
+        role: ctx.session?.["role"] as ROLE
       });
       ctx.body = result;
     } catch (err) {
@@ -276,8 +277,10 @@ router.post(
       const daemonId = String(ctx.query.daemonId);
       const instanceUuid = String(ctx.query.uuid);
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
-      const addr = `${remoteService?.config.ip}:${remoteService?.config.port}`;
-      const prefix = remoteService?.config.prefix;
+      if (!remoteService) throw new Error($t("TXT_CODE_dd559000") + ` Daemon ID: ${daemonId}`);
+      const addr = remoteService.config.addr;
+      const prefix = remoteService.config.prefix;
+      const remoteMappings = remoteService.config.getConvertedRemoteMappings();
       const password = timeUuid();
       await new RemoteRequest(remoteService).request("passport/register", {
         name: "stream_channel",
@@ -289,7 +292,8 @@ router.post(
       ctx.body = {
         password,
         addr,
-        prefix
+        prefix,
+        remoteMappings
       };
     } catch (err) {
       ctx.body = err;
@@ -386,6 +390,7 @@ router.put(
 // Update instance low-privilege configuration data (normal user)
 router.put(
   "/instance_update",
+  speedLimit(3),
   permission({ level: ROLE.USER }),
   validator({
     query: { uuid: String, daemonId: String },
@@ -404,7 +409,7 @@ router.put(
       if (config.tag instanceof Array && isTopPermissionByUuid(getUserUuid(ctx))) {
         instanceTags = (config.tag as any[]).map((tag: any) => {
           const tmp = String(tag).trim();
-          if (tmp.length > 9) throw new Error($t("TXT_CODE_6d8bc58d"));
+          if (tmp.length > 20) throw new Error($t("TXT_CODE_1556989"));
           return tmp;
         });
         if (instanceTags.length > 6) {
@@ -429,7 +434,8 @@ router.put(
       // event task configuration
       const eventTask = {
         autoStart: toBoolean(config.eventTask?.autoStart),
-        autoRestart: toBoolean(config.eventTask?.autoRestart)
+        autoRestart: toBoolean(config.eventTask?.autoRestart),
+        autoRestartMaxTimes: toNumber(config.eventTask?.autoRestartMaxTimes)
       };
 
       // web terminal settings
@@ -457,7 +463,7 @@ router.put(
       let advancedConfig = {};
       advancedConfig = checkInstanceAdvancedParams(config, isTopPermission);
 
-      const result = await new RemoteRequest(remoteService).request("instance/update", {
+      new RemoteRequest(remoteService).request("instance/update", {
         instanceUuid,
         config: {
           pingConfig: !isEmpty(config.pingConfig) ? pingConfig : null,
@@ -477,7 +483,7 @@ router.put(
           ...advancedConfig
         }
       });
-      ctx.body = result;
+      ctx.body = true;
     } catch (err) {
       ctx.body = err;
     }
@@ -520,8 +526,10 @@ router.get(
 );
 
 // [Low-level Permission]
+// Reinstall the instance
 router.post(
   "/install_instance",
+  speedLimit(3),
   permission({ level: ROLE.USER, speedLimit: true }),
   validator({
     query: { daemonId: String, uuid: String },
@@ -536,32 +544,34 @@ router.post(
     try {
       const daemonId = String(ctx.query.daemonId);
       const instanceUuid = String(ctx.query.uuid);
+
+      // Use "description" and "title" as Package ID
+      // Do NOT use other parameters from frontend, it may be a malicious attack
       const description = String(ctx.request.body.description);
       const title = String(ctx.request.body.title);
 
       const presetUrl = systemConfig?.presetPackAddr;
       if (!presetUrl) throw new Error("Preset Addr is empty!");
 
-      const { data: presetConfig } = await axios<IQuickStartTemplate>({
-        url: presetUrl,
-        method: "GET"
-      });
-
-      const packages = presetConfig.packages;
+      const presetConfig = await getAppMarketList();
+      const packages = presetConfig?.packages || [];
 
       if (!(packages instanceof Array)) throw new Error("Preset Config is not array!");
+
+      // Find the target preset config
       const targetPresetConfig = packages.find(
         (v) => v.title === title && v.description === description
       );
       if (!targetPresetConfig) throw new Error("Preset Config is not found!");
 
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
-      const result = await new RemoteRequest(remoteService).request("instance/asynchronous", {
+      new RemoteRequest(remoteService).request("instance/asynchronous", {
         taskName: "install_instance",
         instanceUuid,
-        parameter: targetPresetConfig
+        parameter: targetPresetConfig,
+        role: ctx.session?.["role"] as ROLE
       });
-      ctx.body = result;
+      ctx.body = true;
     } catch (err) {
       ctx.body = err;
     }

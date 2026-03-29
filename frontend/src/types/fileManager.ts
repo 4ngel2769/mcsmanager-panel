@@ -22,6 +22,14 @@ export interface Breadcrumb {
 export interface FileStatus {
   instanceFileTask: number;
   globalFileTask: number;
+  downloadFileFromURLTask: number;
+  downloadTasks?: {
+    path: string;
+    total: number;
+    current: number;
+    status: number;
+    error?: string;
+  }[];
   platform: string;
   isGlobalInstance: boolean;
   disks: string[];
@@ -39,4 +47,22 @@ export interface Permission {
     key: string;
     role: "owner" | "usergroup" | "everyone";
   }[];
+}
+
+export interface DownloadFileConfigItem {
+  url: string;
+  fileName: string;
+}
+
+export interface BatchChmodResultItem {
+  target: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface BatchChmodResult {
+  success: number;
+  failed: number;
+  total: number;
+  results: BatchChmodResultItem[];
 }

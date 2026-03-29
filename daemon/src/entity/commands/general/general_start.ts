@@ -1,14 +1,14 @@
-import { $t } from "../../../i18n";
-import Instance from "../../instance/instance";
-import logger from "../../../service/log";
-import fs from "fs-extra";
-import EventEmitter from "events";
-import { IInstanceProcess } from "../../instance/interface";
 import { ChildProcess, spawn } from "child_process";
-import { commandStringToArray } from "../base/command_parser";
+import EventEmitter from "events";
+import fs from "fs-extra";
 import { killProcess } from "mcsmanager-common";
-import AbsStartCommand from "../start";
+import { $t } from "../../../i18n";
+import logger from "../../../service/log";
 import { getRunAsUserParams } from "../../../tools/system_user";
+import Instance from "../../instance/instance";
+import { IInstanceProcess } from "../../instance/interface";
+import { commandStringToArray } from "../base/command_parser";
+import AbsStartCommand from "../start";
 
 // Error exception at startup
 class StartupError extends Error {
@@ -59,17 +59,20 @@ class ProcessAdapter extends EventEmitter implements IInstanceProcess {
 
 export default class GeneralStartCommand extends AbsStartCommand {
   async createProcess(instance: Instance, source = "") {
+    if (!instance.config.ie || !instance.config.oe) {
+      instance.config.ie = "utf-8";
+      instance.config.oe = "utf-8";
+    }
     if (
       (!instance.config.startCommand && instance.config.processType === "general") ||
-      !instance.hasCwdPath() ||
-      !instance.config.ie ||
-      !instance.config.oe
+      !instance.hasCwdPath()
     )
       throw new StartupError($t("TXT_CODE_general_start.instanceConfigErr"));
     if (!fs.existsSync(instance.absoluteCwdPath())) fs.mkdirpSync(instance.absoluteCwdPath());
 
     // command parsing
-    const commandList = commandStringToArray(instance.config.startCommand);
+    const tmpStartCmd = await instance.parseTextParams(instance.config.startCommand);
+    const commandList = commandStringToArray(tmpStartCmd);
     const commandExeFile = commandList[0];
     const commandParameters = commandList.slice(1);
     if (commandList.length === 0) {
@@ -87,10 +90,7 @@ export default class GeneralStartCommand extends AbsStartCommand {
     logger.info("----------------");
 
     if (runAsConfig.isEnableRunAs) {
-      instance.println(
-        "INFO",
-        $t("TXT_CODE_ba09da46", { name: runAsConfig.runAsName })
-      );
+      instance.println("INFO", $t("TXT_CODE_ba09da46", { name: runAsConfig.runAsName }));
     }
 
     // create child process
@@ -99,13 +99,7 @@ export default class GeneralStartCommand extends AbsStartCommand {
       cwd: instance.absoluteCwdPath(),
       stdio: "pipe",
       windowsHide: true,
-      env: {
-        ...process.env,
-        // Set important environment variables for the target user
-        USER: runAsConfig.runAsName,
-        HOME: `/home/${runAsConfig.runAsName}`,
-        LOGNAME: runAsConfig.runAsName
-      },
+      env: instance.generateEnv(),
       // Do not detach the child process;
       // otherwise, an abnormal exit of the parent process may cause the child process to continue running,
       // leading to an abnormal instance state.
@@ -137,5 +131,6 @@ export default class GeneralStartCommand extends AbsStartCommand {
       })
     );
     instance.println("INFO", $t("TXT_CODE_general_start.startOrdinaryTerminal"));
+    instance.println("INFO", $t("TXT_CODE_b50ffba8"));
   }
 }

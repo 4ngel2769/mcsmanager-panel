@@ -7,6 +7,7 @@ export enum OperationLoggerAction {
   InstanceConfigChange = "instance_config_change",
   InstanceCreate = "instance_create",
   InstanceDelete = "instance_delete",
+  InstanceFileDownloadFromUrl = "instance_file_download_from_url",
   InstanceFileUpload = "instance_file_upload",
   InstanceFileUpdate = "instance_file_update",
   InstanceFileDownload = "instance_file_download",
@@ -19,6 +20,8 @@ export enum OperationLoggerAction {
   UserCreate = "user_create",
   UserDelete = "user_delete",
   UserConfigChange = "user_config_change",
+  UserLogin = "user_login",
+  SsoUnbind = "sso_unbind",
   SystemConfigChange = "system_config_change"
 }
 
@@ -66,6 +69,12 @@ export type InstanceCreateOptions = {
 
 export type InstanceDeleteOptions = {
   type: "instance_delete";
+} & InstanceGeneralOptions;
+
+export type InstanceFileDownloadFromUrlOptions = {
+  type: "instance_file_download_from_url";
+  url?: string;
+  fileName?: string;
 } & InstanceGeneralOptions;
 
 export type InstanceFileUploadOptions = {
@@ -127,6 +136,17 @@ export type UserConfigChangeOptions = {
   type: "user_config_change";
 } & GlobalGeneralOptions;
 
+export type UserLoginOptions = {
+  type: "user_login";
+  login_result: boolean;
+  login_method?: string;
+} & GlobalGeneralOptions;
+
+export type SsoUnbindOptions = {
+  type: "sso_unbind";
+  target_user_name: string;
+} & GlobalGeneralOptions;
+
 export type SystemConfigChangeOptions = {
   type: "system_config_change";
 } & GlobalGeneralOptions;
@@ -140,6 +160,7 @@ export type OperationLoggerItem =
   | InstanceConfigChangeOptions
   | InstanceCreateOptions
   | InstanceDeleteOptions
+  | InstanceFileDownloadFromUrlOptions
   | InstanceFileUploadOptions
   | InstanceFileUpdateOptions
   | InstanceFileDownloadOptions
@@ -152,8 +173,10 @@ export type OperationLoggerItem =
   | UserCreateOptions
   | UserDeleteOptions
   | UserConfigChangeOptions
+  | UserLoginOptions
+  | SsoUnbindOptions
   | SystemConfigChangeOptions;
 
 export type OperationLoggerItemPayload = {
-  [T in OperationLoggerItem["type"]]: Omit<Extract<OperationLoggerItem, { type: T }>, "type">;
+  [T in OperationLoggerItem["type"]]: Omit<Extract<OperationLoggerItem, { type: T }>, "type">
 };

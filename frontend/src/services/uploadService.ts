@@ -1,16 +1,21 @@
+import { t } from "@/lang/i18n";
 import {
   uploadFile as uploadFileApi,
   uploadFilePiece as uploadFilePieceApi
 } from "@/services/apis/fileManager";
-import { ref, type Ref } from "vue";
-import { message } from "ant-design-vue";
-import { t } from "@/lang/i18n";
-import fileSum from "@/tools/fileSum";
 import { reportErrorMsg } from "@/tools/validator";
+import { message } from "ant-design-vue";
+import { ref, type Ref } from "vue";
 
-const PIECE_SIZE = 1024 * 1024 * 10;
+const PIECE_SIZE = 1024 * 1024 * 2;
 
-class UploadFiles {
+type UploadOptions = {
+  overwrite: boolean;
+  unzip?: boolean;
+  code?: string;
+};
+
+export class UploadFiles {
   file: File;
   id: string | undefined;
   url: string;
@@ -20,24 +25,39 @@ class UploadFiles {
   prepared = false;
   canceled = false;
   removing = false;
+  instanceInfo:
+    | {
+        daemonId: string;
+        instanceId: string;
+      }
+    | undefined;
+  callbacks: {
+    onStart: Set<() => void>;
+    onEnd: Set<() => void>;
+  };
 
-  constructor(tempId: string, file: File, url: string, password: string, shouldOverwrite: boolean) {
+  constructor(tempId: string, file: File, url: string, password: string, options: UploadOptions) {
     this.file = file;
     this.url = url;
-    this.init(tempId, url, password, shouldOverwrite); // async
+    this.id = tempId;
+    this.callbacks = {
+      onStart: new Set(),
+      onEnd: new Set()
+    };
+    this.init(tempId, url, password, options); // async
   }
 
-  async init(tempId: string, url: string, password: string, shouldOverwrite: boolean) {
+  async init(tempId: string, url: string, password: string, options: UploadOptions) {
     const { state: uploadCfg, execute: uploadFile } = uploadFileApi();
     try {
       await uploadFile({
         timeout: Number.MAX_VALUE,
         url: `${url}/upload-new/${password}`,
         params: {
-          overwrite: shouldOverwrite,
           filename: this.file.name,
           size: this.file.size,
-          sum: await fileSum(this.file)
+          sum: "",
+          ...options
         }
       });
 
@@ -66,6 +86,46 @@ class UploadFiles {
     }
   }
 
+  addCallback(type: "start" | "end", callback: () => void) {
+    if (type == "start") {
+      this.callbacks.onStart.add(callback);
+    }
+    if (type == "end") {
+      this.callbacks.onEnd.add(callback);
+    }
+  }
+
+  removeCallback(type: "start" | "end", callback: () => void) {
+    if (type == "start") {
+      this.callbacks.onStart.delete(callback);
+    }
+    if (type == "end") {
+      this.callbacks.onEnd.delete(callback);
+    }
+  }
+
+  onStart() {
+    this.callbacks.onStart.forEach((callback) => {
+      try {
+        callback();
+      } catch (e) {
+        console.error("Error in upload start callback:", e);
+      }
+    });
+    this.callbacks.onStart.clear();
+  }
+
+  onEnd() {
+    this.callbacks.onEnd.forEach((callback) => {
+      try {
+        callback();
+      } catch (e) {
+        console.error("Error in upload end callback:", e);
+      }
+    });
+    this.callbacks.onEnd.clear();
+  }
+
   nextTask(): UploadTask | undefined {
     const rangeStart = this.offset;
     const rangeEnd = Math.min(this.offset + PIECE_SIZE, this.file.size);
@@ -92,6 +152,7 @@ class UploadFiles {
         stop: true
       }
     });
+    this.onEnd();
     uploadService.files.delete(this.id!);
   }
 }
@@ -103,6 +164,7 @@ class UploadTask {
   rangeStart: number;
   rangeEnd: number;
   worker?: Promise<any>;
+  abortController?: AbortController;
   retries: number = 0;
 
   constructor(config: { file: UploadFiles; range: [number, number] }) {
@@ -116,6 +178,7 @@ class UploadTask {
 
     const formData = new FormData();
     formData.append("file", this.file.file.slice(this.rangeStart, this.rangeEnd));
+    this.abortController = new AbortController();
 
     this.worker = uploadFilePiece({
       url: this.file.pieceUrl,
@@ -123,7 +186,8 @@ class UploadTask {
       params: {
         offset: this.rangeStart
       },
-      onUploadProgress: (progressEvent: any) => this.onProgress(progressEvent.loaded)
+      onUploadProgress: (progressEvent: any) => this.onProgress(progressEvent.loaded),
+      signal: this.abortController.signal
     })
       .then(() => this.onCompleted())
       .catch((e) => this.onError(e));
@@ -131,8 +195,29 @@ class UploadTask {
     this.status = "uploading";
   }
 
+  stop() {
+    this.status = "stopping";
+    if (!this.worker) {
+      return;
+    }
+    this.abortController?.abort();
+  }
+
   onError(error: any) {
+    const isStopping = this.status == "stopping";
     console.error("Upload error:", error);
+    if (!isStopping) {
+      this.retries += 1;
+      message.error(
+        t("TXT_CODE_6adffa20") +
+          (this.retries < 3
+            ? t("TXT_CODE_31145b04", {
+                retries: this.retries + 1,
+                maxRetries: 3
+              })
+            : t("TXT_CODE_3f828072"))
+      );
+    }
     const msg = error.response?.data || error.message;
     console.error(msg);
     if (msg == "Access denied: No task found" || msg == "File is not opened") {
@@ -140,9 +225,8 @@ class UploadTask {
       this.status = "removing";
       return uploadService.update();
     }
-    const isStopping = this.status == "stopping";
     this.status = "failed";
-    this.retries += 1;
+    this.onProgress(0);
 
     if (!isStopping && this.retries < 3) {
       this.start(); // async
@@ -175,24 +259,44 @@ class UploadService {
   static concurrency = 5;
   files: Map<string, UploadFiles> = new Map();
   uploaded = 0;
-  task: UploadTask[] = [];
+  task: (UploadTask | undefined)[] = [];
   current?: string;
   status: "stopped" | "working" | "suspend" = "stopped";
-  uiData: Ref<{ files: number[]; current?: number[]; currentFile?: string; suspending: boolean }> =
-    ref({
-      files: [],
-      suspending: false
-    });
+  uiData: Ref<{
+    files: number[];
+    current?: number[];
+    currentFile?: string;
+    suspending: boolean;
+    instanceInfo?: {
+      daemonId: string;
+      instanceId: string;
+    };
+  }> = ref({
+    files: [],
+    suspending: false
+  });
 
-  append(file: File, url: string, password: string, shouldOverwrite: boolean) {
+  append(
+    file: File,
+    url: string,
+    password: string,
+    options: UploadOptions,
+    // eslint-disable-next-line no-unused-vars
+    beforeMounted?: (uploadFile: UploadFiles) => void
+  ) {
     const tempId = Date.now().toString();
-    const uploadFile = new UploadFiles(tempId, file, url, password, shouldOverwrite);
+    const uploadFile = new UploadFiles(tempId, file, url, password, options);
+    if (beforeMounted) {
+      beforeMounted(uploadFile);
+    }
     this.files.set(tempId, uploadFile);
     if (this.status == "stopped") {
       this.status = "working";
       this.current = tempId;
+      uploadFile.onStart();
     }
     this.update();
+    return uploadFile;
   }
 
   changeId(oldId: string, newId: string) {
@@ -208,10 +312,21 @@ class UploadService {
   }
 
   update() {
-    this.task = this.task.filter((t) => t.status !== "completed");
-    if (this.status == "suspend") return;
+    for (let i = 0; i < this.task.length; i++) {
+      if (!this.task[i]) continue;
+      if (this.task[i]!.status == "completed") {
+        this.task[i] = undefined;
+      }
+    }
+    if (this.status == "suspend") {
+      if (this.files.size == 0) {
+        this.status = "stopped";
+      }
+      return;
+    }
     let removeFile = false;
     for (const task of this.task) {
+      if (!task) continue;
       if (task.status == "removing") {
         removeFile = true;
       }
@@ -227,25 +342,32 @@ class UploadService {
       if (removeFile) {
         this.task = [];
       }
-      while (
-        !reachTaskEnd &&
-        currentFile.prepared &&
-        this.task.length < UploadService.concurrency
-      ) {
-        const nextTask = currentFile.nextTask();
-        if (!nextTask) {
-          reachTaskEnd = true;
+
+      for (let i = 0; i < UploadService.concurrency; i++) {
+        if (reachTaskEnd || !currentFile.prepared) {
           break;
         }
-        this.task.push(nextTask);
-      }
-      for (const uploadTask of this.task) {
-        if (uploadTask.status == "pending") {
-          uploadTask.start(); // async
+        if (this.task[i] == undefined) {
+          const nextTask = currentFile.nextTask();
+          if (!nextTask) {
+            reachTaskEnd = true;
+            break;
+          }
+          this.task[i] = nextTask;
         }
       }
-      if (reachTaskEnd && currentFile.prepared && this.task.length == 0) {
+
+      let tasks = 0;
+      for (const uploadTask of this.task) {
+        if (!uploadTask) continue;
+        tasks++;
+        if (uploadTask.status != "pending") continue;
+        uploadTask.retries = 0;
+        uploadTask.start(); // async
+      }
+      if (reachTaskEnd && currentFile.prepared && tasks == 0) {
         const currentFile = this.files.get(this.current)!;
+        currentFile.onEnd();
         if (!removeFile) {
           this.uploaded += 1;
         }
@@ -257,13 +379,14 @@ class UploadService {
         }
         while (this.files.size > 0) {
           const current = this.files.keys().next().value ?? "";
-          const currentFile = this.files.get(current);
-          if (currentFile?.removing) {
+          const currentFile = this.files.get(current)!;
+          if (currentFile.removing) {
             this.files.delete(current);
             continue;
           }
 
           this.current = current;
+          currentFile.onStart();
           this.updateProgress();
           this.update();
           return;
@@ -280,8 +403,9 @@ class UploadService {
     if (this.status == "suspend") return;
     this.status = "suspend";
     this.task.forEach((t) => {
+      if (!t) return;
       if (t.status != "completed") {
-        t.status = "stopping";
+        t.stop();
       }
     });
     this.updateProgress();
@@ -292,6 +416,7 @@ class UploadService {
     if (this.files.size > 0) {
       this.status = "working";
       for (const uploadTask of this.task) {
+        if (!uploadTask) continue;
         uploadTask.status = "pending";
       }
     }
@@ -302,8 +427,9 @@ class UploadService {
     if (this.status == "stopped") return;
     this.status = "stopped";
     for (const task of this.task) {
+      if (!task) continue;
       if (task.status !== "completed") {
-        task.status = "stopping";
+        task.stop();
       }
     }
     this.task = [];
@@ -328,16 +454,23 @@ class UploadService {
     }
     const currentFile = this.files.get(this.current)!;
     let progress = currentFile.uploadedSize;
-    for (const uploadTask of this.task) {
-      progress += uploadTask.progress;
-    }
 
     this.uiData.value = {
       current: [progress, currentFile.file.size],
       currentFile: currentFile.file.name,
       files: [this.uploaded + (this.current ? 1 : 0), this.uploaded + this.files.size],
-      suspending: this.status == "suspend"
+      suspending: this.status == "suspend",
+      instanceInfo: currentFile.instanceInfo
     };
+  }
+
+  getFileNth(id: string): number {
+    for (const string of this.files.keys()) {
+      if (string == id) {
+        return Array.from(this.files.keys()).indexOf(string);
+      }
+    }
+    return -1;
   }
 }
 

@@ -9,6 +9,7 @@ export default class DockerStatsTask implements ILifeCycleTask {
   public status: number = 0;
   public name: string = "DockerStats";
   private task: NodeJS.Timeout | null = null;
+  private isUpdating = false;
   private lastStatsMap: Map<string, { [key: string]: number | undefined; timestamp: number }> =
     new Map();
 
@@ -46,27 +47,50 @@ export default class DockerStatsTask implements ILifeCycleTask {
     return result;
   }
 
-  private getNetworkInterface(stats: Dockerode.NetworkStats) {
-    let networkInterface = stats?.["eth0"];
-    if (!networkInterface) {
-      for (const key in stats.networks) {
-        if (key.startsWith("eth")) {
-          networkInterface = stats[key];
-          break;
-        }
+  private getDockerNetworkCumulative(networks?: Dockerode.NetworkStats) {
+    if (!networks || typeof networks !== "object") {
+      return {
+        rxBytes: undefined,
+        txBytes: undefined,
+        interfaceNames: undefined,
+        source: "docker" as const
+      };
+    }
+
+    let rxBytes = 0;
+    let txBytes = 0;
+    let hasNetworkData = false;
+    const interfaceNames: string[] = [];
+    for (const [interfaceName, networkInterface] of Object.entries(networks)) {
+      if (interfaceName.startsWith("lo")) continue;
+      interfaceNames.push(interfaceName);
+      const interfaceRxBytes = networkInterface?.rx_bytes;
+      const interfaceTxBytes = networkInterface?.tx_bytes;
+      if (typeof interfaceRxBytes === "number" && Number.isFinite(interfaceRxBytes)) {
+        rxBytes += interfaceRxBytes;
+        hasNetworkData = true;
+      }
+      if (typeof interfaceTxBytes === "number" && Number.isFinite(interfaceTxBytes)) {
+        txBytes += interfaceTxBytes;
+        hasNetworkData = true;
       }
     }
-    if (!networkInterface) {
-      const networkKeys = Object.keys(stats.networks).filter((v) => !v.startsWith("lo0"));
-      networkInterface = stats[networkKeys?.[0]] ?? undefined;
+
+    if (!hasNetworkData) {
+      return {
+        rxBytes: undefined,
+        txBytes: undefined,
+        interfaceNames: undefined,
+        source: "docker" as const
+      };
     }
 
-    const currentValues = {
-      rxBytes: networkInterface?.rx_bytes ?? undefined,
-      txBytes: networkInterface?.tx_bytes ?? undefined
+    return {
+      rxBytes,
+      txBytes,
+      interfaceNames: interfaceNames.sort(),
+      source: "docker" as const
     };
-
-    return this.calculateRealTimeRate(currentValues, "network");
   }
 
   private getCpuUsage(stats: Dockerode.ContainerStats) {
@@ -87,10 +111,31 @@ export default class DockerStatsTask implements ILifeCycleTask {
   }
 
   async updateStats(containerId: string, instance: Instance) {
+    if (this.isUpdating) {
+      return;
+    }
+    this.isUpdating = true;
+
     try {
       const container = DockerStatsTask.defaultDocker.getContainer(containerId);
       const stats = await container.stats({ stream: false });
-      const { rxBytes, txBytes } = this.getNetworkInterface(stats.networks);
+
+      let rxBytes: number | undefined = undefined;
+      let txBytes: number | undefined = undefined;
+      let rxRate: number | undefined = undefined;
+      let txRate: number | undefined = undefined;
+      let networkInterfaces: string[] | undefined = undefined;
+      let networkStatsSource: "docker" | undefined = undefined;
+
+      const networkStats = this.getDockerNetworkCumulative(stats.networks);
+      rxBytes = networkStats.rxBytes;
+      txBytes = networkStats.txBytes;
+      networkInterfaces = networkStats.interfaceNames;
+      networkStatsSource = networkStats.source;
+
+      const networkRates = this.calculateRealTimeRate({ rxBytes, txBytes }, "network");
+      rxRate = networkRates.rxBytes;
+      txRate = networkRates.txBytes;
 
       const memoryUsage = stats.memory_stats.usage - (stats.memory_stats.stats.cache ?? 0);
       const memoryUsagePercent = Math.ceil((memoryUsage / stats.memory_stats.limit) * 100);
@@ -99,13 +144,20 @@ export default class DockerStatsTask implements ILifeCycleTask {
         cpuUsage: this.getCpuUsage(stats),
         rxBytes,
         txBytes,
+        rxRate,
+        txRate,
+        networkInterfaces,
+        networkStatsSource,
         memoryUsagePercent,
         memoryUsage,
         memoryLimit: stats.memory_stats.limit
       };
+
       instance.info = { ...instance.info, ...result };
     } catch (error) {
       // ignore error
+    } finally {
+      this.isUpdating = false;
     }
   }
 
@@ -123,15 +175,22 @@ export default class DockerStatsTask implements ILifeCycleTask {
       clearInterval(this.task);
       this.task = null;
     }
+    this.isUpdating = false;
     this.lastStatsMap.clear();
     instance.info = {
       ...instance.info,
       cpuUsage: undefined,
       rxBytes: undefined,
       txBytes: undefined,
+      rxRate: undefined,
+      txRate: undefined,
+      networkInterfaces: undefined,
+      networkStatsSource: undefined,
       memoryUsagePercent: undefined,
       readBytes: undefined,
-      writeBytes: undefined
+      writeBytes: undefined,
+      storageUsage: 0,
+      storageLimit: instance.config.docker?.maxSpace ?? 0
     };
   }
 }

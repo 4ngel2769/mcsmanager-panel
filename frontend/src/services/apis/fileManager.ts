@@ -1,4 +1,5 @@
 import { useDefineApi } from "@/stores/useDefineApi";
+import type { RemoteMappingEntry } from "@/tools/protocol";
 
 export const fileList = useDefineApi<
   {
@@ -39,6 +40,14 @@ export const getFileStatus = useDefineApi<
   {
     instanceFileTask: number;
     globalFileTask: number;
+    downloadFileFromURLTask: number;
+    downloadTasks?: {
+      path: string;
+      total: number;
+      current: number;
+      status: number;
+      error?: string;
+    }[];
     platform: string;
     isGlobalInstance: boolean;
     disks: string[];
@@ -148,6 +157,25 @@ export const compressFile = useDefineApi<
   timeout: Number.MAX_SAFE_INTEGER
 });
 
+export const downloadFromUrl = useDefineApi<
+  {
+    params: {
+      daemonId: string;
+      uuid: string;
+    };
+    data: {
+      url: string;
+      file_name: string;
+    };
+  },
+  {
+    error?: string;
+  }
+>({
+  url: "/api/files/download_from_url",
+  method: "POST"
+});
+
 export const uploadAddress = useDefineApi<
   {
     params: {
@@ -159,6 +187,7 @@ export const uploadAddress = useDefineApi<
   {
     password: string;
     addr: string;
+    remoteMappings: RemoteMappingEntry[];
   }
 >({
   url: "/api/files/upload",
@@ -173,6 +202,8 @@ export const uploadFile = useDefineApi<
           filename: string;
           size: number;
           sum: string;
+          unzip?: boolean;
+          code?: string;
         }
       | { stop: boolean };
   },
@@ -194,7 +225,8 @@ export const uploadFilePiece = useDefineApi<
   any
 >({
   method: "POST",
-  headers: { "Content-Type": "multipart/form-data" }
+  headers: { "Content-Type": "multipart/form-data" },
+  timeout: Number.MAX_SAFE_INTEGER
 });
 
 export const downloadAddress = useDefineApi<
@@ -208,6 +240,7 @@ export const downloadAddress = useDefineApi<
   {
     password: string;
     addr: string;
+    remoteMappings: RemoteMappingEntry[];
   }
 >({
   url: "/api/files/download",
@@ -247,5 +280,32 @@ export const changePermission = useDefineApi<
   boolean
 >({
   url: "/api/files/chmod",
+  method: "PUT"
+});
+
+export const changePermissionBatch = useDefineApi<
+  {
+    params: {
+      daemonId: string;
+      uuid: string;
+    };
+    data: {
+      chmod: number;
+      deep: boolean;
+      targets: string[];
+    };
+  },
+  {
+    success: number;
+    failed: number;
+    total: number;
+    results: {
+      target: string;
+      success: boolean;
+      error?: string;
+    }[];
+  }
+>({
+  url: "/api/files/chmod_batch",
   method: "PUT"
 });

@@ -1,14 +1,14 @@
-import md5 from "md5";
-import { v4 } from "uuid";
-import { IUserApp, User, UserPassWordType } from "../entity/user";
-import { logger } from "./log";
-import { IUser } from "../entity/entity_interface";
-import Storage from "../common/storage/sys_storage";
-import { QueryWrapper, LocalFileSource } from "mcsmanager-common";
-import { $t } from "../i18n";
 import bcrypt from "bcryptjs";
-import { authenticator } from "otplib";
 import { t } from "i18next";
+import { LocalFileSource, QueryWrapper } from "mcsmanager-common";
+import md5 from "md5";
+import { authenticator } from "otplib";
+import { v4 } from "uuid";
+import Storage from "../common/storage/sys_storage";
+import { IUser } from "../entity/entity_interface";
+import { IUserApp, User, UserPassWordType } from "../entity/user";
+import { $t } from "../i18n";
+import { logger } from "./log";
 
 export class TwoFactorError extends Error {}
 
@@ -49,6 +49,8 @@ class UserSubsystem {
     if (config.apiKey != null) instance.apiKey = config.apiKey;
     if (config.secret != null) instance.secret = String(config.secret);
     if (config.open2FA != null) instance.open2FA = Boolean(config.open2FA);
+    if (config.ssoSub != null) instance.ssoSub = String(config.ssoSub);
+    if (config.ssoBound != null) instance.ssoBound = Boolean(config.ssoBound);
     if (config.instances) this.setUserInstances(uuid, config.instances);
     if (config.passWord) {
       instance.passWordType = UserPassWordType.bcrypt;
@@ -66,7 +68,7 @@ class UserSubsystem {
   check2FA(code: string, user: IUser, totpDriftToleranceSteps: number = 0) {
     if (!user.secret)
       throw new Error("Please contact the administrator to reset the account password");
-    authenticator.options= { window: totpDriftToleranceSteps };
+    authenticator.options = { window: totpDriftToleranceSteps };
     const delta = authenticator.checkDelta(code, user?.secret);
     return delta != null;
   }
@@ -75,7 +77,11 @@ class UserSubsystem {
     const inputPassword = info.passWord || "";
     for (const [uuid, user] of this.objects) {
       if (user.userName === info.userName) {
-        if (user.open2FA && user.secret && !this.check2FA(code2FA || "", user, totpDriftToleranceSteps))
+        if (
+          user.open2FA &&
+          user.secret &&
+          !this.check2FA(code2FA || "", user, totpDriftToleranceSteps)
+        )
           throw new TwoFactorError(t("TXT_CODE_3d68e43b"));
         if (user.passWordType === UserPassWordType.bcrypt) {
           if (!bcrypt.compareSync(inputPassword, user.passWord))
@@ -161,6 +167,42 @@ class UserSubsystem {
       this.objects.delete(uuid);
       await Storage.getStorage().delete("User", uuid);
     }
+  }
+
+  getUserBySsoSub(ssoSub: string): User | null {
+    for (const [, user] of this.objects) {
+      if (user.ssoSub && user.ssoSub === ssoSub) return user;
+    }
+    return null;
+  }
+
+  async unbindSso(uuid: string) {
+    const instance = this.getInstance(uuid);
+    if (!instance) return;
+    instance.ssoSub = "";
+    instance.ssoBound = false;
+    await Storage.getStorage().store("User", uuid, instance);
+  }
+
+  async unbindAllSso(): Promise<number> {
+    let count = 0;
+    for (const [uuid, user] of this.objects) {
+      if (user.ssoBound || user.ssoSub) {
+        user.ssoSub = "";
+        user.ssoBound = false;
+        await Storage.getStorage().store("User", uuid, user);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async bindSso(uuid: string, ssoSub: string) {
+    const instance = this.getInstance(uuid);
+    if (!instance) throw new Error("User not found");
+    instance.ssoSub = ssoSub;
+    instance.ssoBound = true;
+    await Storage.getStorage().store("User", uuid, instance);
   }
 
   getQueryWrapper() {

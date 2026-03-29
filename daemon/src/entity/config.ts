@@ -19,6 +19,36 @@ class Config {
   public maxZipFileSize = 200;
   public language = "en_us";
   public defaultInstancePath = "";
+  public defaultJavaDataPath = "";
+  public allocatablePortRange = [10010, 65500];
+  public currentAllocatablePort = 10010;
+  public portAssignInterval = 5;
+
+  // default: Unlimited, if set 40 => (40 packets * 64KB)/s => 2.5MB/s
+  public uploadSpeedRate = 0;
+  // default: Unlimited, if set 32 => (32 packets * 64KB)/s => 2MB/s
+  public downloadSpeedRate = 0;
+  // default: 1, if set 0 => Unlimited
+  public maxDownloadFromUrlFileCount = 1;
+
+  // Output buffer size (number of chunks) for instance terminal output.
+  // Each chunk is up to 256 characters, flushed every 50ms.
+  // Increasing this value allows more output per flush cycle,
+  // but may increase memory usage under high output load.
+  // default: 256 (~64KB per flush), range: 16-4096
+  public outputBufferSize = 256;
+
+  // Daemon shutdown behavior
+  public enableSoftShutdown = true;
+  public softShutdownSkipDocker = true;
+  public softShutdownWaitSeconds = 30;
+
+  public whiteListPanelIp = false;
+  public whiteListPanelIps = ["127.0.0.1", "::1"];
+
+  ssl = false;
+  sslPemPath = "";
+  sslKeyPath = "";
 }
 
 // daemon configuration class
@@ -47,4 +77,4 @@ class GlobalEnv {
 const globalConfiguration = new GlobalConfiguration();
 const globalEnv = new GlobalEnv();
 
-export { globalConfiguration, Config, globalEnv };
+export { Config, globalConfiguration, globalEnv };

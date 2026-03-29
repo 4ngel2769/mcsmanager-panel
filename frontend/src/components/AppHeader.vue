@@ -1,255 +1,38 @@
 <script setup lang="ts">
-import { router, type RouterMetaInfo } from "@/config/router";
 import logo from "@/assets/logo.png";
-import { useLayoutContainerStore } from "@/stores/useLayoutContainerStore";
-import { useRoute } from "vue-router";
-import { computed, h } from "vue";
-import { useAppRouters } from "@/hooks/useAppRouters";
-import { notification } from "ant-design-vue";
-import {
-  BuildOutlined,
-  SaveOutlined,
-  AppstoreAddOutlined,
-  LogoutOutlined,
-  UserOutlined,
-  MenuUnfoldOutlined,
-  FormatPainterOutlined,
-  RedoOutlined,
-  CloseCircleOutlined
-} from "@ant-design/icons-vue";
+import { useHeaderMenus } from "@/hooks/useHeaderMenus";
 import { useScreen } from "@/hooks/useScreen";
+import { useAppConfigStore } from "@/stores/useAppConfigStore";
+import { useLayoutContainerStore } from "@/stores/useLayoutContainerStore";
+import { MenuUnfoldOutlined } from "@ant-design/icons-vue";
+import { useScroll } from "@vueuse/core";
+import { computed, h } from "vue";
+import { useRoute } from "vue-router";
 import CardPanel from "./CardPanel.vue";
-import { t } from "@/lang/i18n";
-import { THEME, useAppConfigStore } from "@/stores/useAppConfigStore";
-import { logoutUser } from "@/services/apis/index";
-import { message } from "ant-design-vue";
-import { useAppToolsStore } from "@/stores/useAppToolsStore";
-import { useAppStateStore } from "@/stores/useAppStateStore";
-import { useLayoutConfigStore } from "../stores/useLayoutConfig";
-import { Modal } from "ant-design-vue";
-
-const { saveGlobalLayoutConfig, resetGlobalLayoutConfig } = useLayoutConfigStore();
-const { containerState, changeDesignMode } = useLayoutContainerStore();
-const { getRouteParamsUrl, toPage } = useAppRouters();
-const { setTheme } = useAppConfigStore();
-const { state: appTools } = useAppToolsStore();
-const { isAdmin, state: appState, isLogged } = useAppStateStore();
-const openNewCardDialog = () => {
-  containerState.showNewCardDialog = true;
-};
-
-const { execute } = logoutUser();
-
-const handleToPage = (url: string) => {
-  containerState.showPhoneMenu = false;
-  toPage({
-    path: url
-  });
-};
 
 const route = useRoute();
+const { containerState } = useLayoutContainerStore();
+const { logoImage } = useAppConfigStore();
 
-const menus = computed(() => {
-  return router
-    .getRoutes()
-    .filter((v) => {
-      const metaInfo = v.meta as RouterMetaInfo;
-      if (metaInfo.condition && !metaInfo.condition()) {
-        return false;
-      }
-      if (containerState.isDesignMode) {
-        return metaInfo.onlyDisplayEditMode || metaInfo.mainMenu;
-      }
-      if (isAdmin.value) {
-        return metaInfo.mainMenu === true && metaInfo.onlyDisplayEditMode !== true;
-      }
+const { menus, appMenus, handleToPage } = useHeaderMenus();
 
-      return (
-        metaInfo.mainMenu === true &&
-        isLogged.value &&
-        Number(appState.userInfo?.permission) >= Number(metaInfo.permission)
-      );
-    })
-    .map((r) => {
-      return {
-        name: r.name,
-        path: r.path,
-        meta: r.meta
-      };
-    });
+/** Whether route menu item is active (current path equals or is child of this path) */
+const isRouteActive = (path: string): boolean => {
+  if (route.path === path) return true;
+  if (path === "/") return false;
+  return route.path.startsWith(path + "/");
+};
+
+const { y } = useScroll(document.body);
+
+const isScroll = computed(() => {
+  return y.value > 10;
 });
 
-const breadcrumbs = computed(() => {
-  const arr = [
-    {
-      title: t("TXT_CODE_f5b9d58f"),
-      disabled: false,
-      href: `.`
-    }
-  ];
-
-  const queryUrl = getRouteParamsUrl();
-
-  if (route.meta.breadcrumbs instanceof Array) {
-    const meta = route.meta as RouterMetaInfo;
-    meta.breadcrumbs?.forEach((v) => {
-      const params = queryUrl && !v.mainMenu ? `?${queryUrl}` : "";
-      if ((appState.userInfo?.permission || 0) < v.permission) return;
-      arr.push({
-        title: v.name,
-        disabled: false,
-        href: `./#${v.path}${params}`
-      });
-    });
-  }
-
-  arr.push({
-    title: String(route.name),
-    disabled: true,
-    href: `./#${route.fullPath}`
-  });
-
-  return arr;
-});
-
-const appMenus = computed(() => {
-  return [
-    {
-      title: t("TXT_CODE_8b0f8aab"),
-      icon: AppstoreAddOutlined,
-      click: openNewCardDialog,
-      conditions: containerState.isDesignMode,
-      onlyPC: true
-    },
-    {
-      title: t("TXT_CODE_8145d82"),
-      icon: SaveOutlined,
-      click: async () => {
-        Modal.confirm({
-          title: t("TXT_CODE_d73c8510"),
-          content: t("TXT_CODE_6d9b9f22"),
-          async onOk() {
-            changeDesignMode(false);
-            await saveGlobalLayoutConfig();
-            notification.success({
-              placement: "top",
-              message: t("TXT_CODE_47c35915"),
-              description: t("TXT_CODE_e10c992a")
-            });
-            setTimeout(() => window.location.reload(), 400);
-          }
-        });
-      },
-      conditions: containerState.isDesignMode,
-      onlyPC: true
-    },
-    {
-      title: t("TXT_CODE_5b5d6f04"),
-      icon: CloseCircleOutlined,
-      click: async () => {
-        Modal.confirm({
-          title: t("TXT_CODE_8f20c21c"),
-          content: t("TXT_CODE_9740f199"),
-          async onOk() {
-            window.location.reload();
-          }
-        });
-      },
-      conditions: containerState.isDesignMode,
-      onlyPC: true
-    },
-    {
-      title: t("TXT_CODE_abd2f7e1"),
-      icon: RedoOutlined,
-      click: async () => {
-        Modal.confirm({
-          title: t("TXT_CODE_74fa2f73"),
-          content: t("TXT_CODE_f63bfe78"),
-          async onOk() {
-            await resetGlobalLayoutConfig();
-            notification.success({
-              placement: "top",
-              message: t("TXT_CODE_15c6d4eb"),
-              description: t("TXT_CODE_e10c992a")
-            });
-            setTimeout(() => window.location.reload(), 400);
-          }
-        });
-      },
-      conditions: containerState.isDesignMode,
-      onlyPC: true
-    },
-
-    {
-      title: t("TXT_CODE_f591e2fa"),
-      icon: FormatPainterOutlined,
-      click: (key: string) => {
-        if (key === THEME.DARK) {
-          Modal.confirm({
-            title: t("TXT_CODE_9775ccb"),
-            content: t("TXT_CODE_90b2ae00"),
-            async onOk() {
-              setTheme(THEME.DARK);
-            }
-          });
-        } else {
-          setTheme(THEME.LIGHT);
-        }
-      },
-      conditions: !containerState.isDesignMode,
-      onlyPC: false,
-      menus: [
-        {
-          title: t("TXT_CODE_673eac8e"),
-          value: THEME.LIGHT
-        },
-        {
-          title: t("TXT_CODE_5e4a370d"),
-          value: THEME.DARK
-        }
-      ]
-    },
-    {
-      title: t("TXT_CODE_ebd2a6a1"),
-      icon: BuildOutlined,
-      click: () => {
-        changeDesignMode(true);
-        notification.warning({
-          placement: "bottom",
-          type: "warning",
-          message: t("TXT_CODE_7b1adf35"),
-          description: t("TXT_CODE_6b6f1d3")
-        });
-      },
-      conditions: !containerState.isDesignMode && isAdmin.value,
-      onlyPC: true
-    },
-    {
-      title: t("TXT_CODE_8c3164c9"),
-      icon: UserOutlined,
-      click: () => {
-        appTools.showUserInfoDialog = true;
-      },
-      conditions: !containerState.isDesignMode && isLogged.value,
-      onlyPC: false
-    },
-    {
-      title: t("TXT_CODE_2c69ab15"),
-      icon: LogoutOutlined,
-      click: async () => {
-        Modal.confirm({
-          title: t("TXT_CODE_9654b91c"),
-          async onOk() {
-            await execute();
-            message.success(t("TXT_CODE_11673d8c"));
-            setTimeout(() => (window.location.href = "/"), 400);
-          }
-        });
-      },
-      conditions: !containerState.isDesignMode && isLogged.value,
-      onlyPC: false
-    }
-  ];
+const headerStyle = computed(() => {
+  return {
+    "--header-height": isScroll.value ? "60px" : "64px"
+  };
 });
 
 const { isPhone } = useScreen();
@@ -260,12 +43,12 @@ const openPhoneMenu = (b = false) => {
 </script>
 
 <template>
-  <header class="app-header-wrapper">
+  <header class="app-header-wrapper" :style="headerStyle">
     <div v-if="!isPhone" class="app-header-content">
       <nav class="btns">
         <a href="." style="margin-right: 12px">
           <div class="logo">
-            <img :src="logo" style="height: 18px" />
+            <img :src="logoImage" style="height: 18px" />
           </div>
         </a>
 
@@ -273,16 +56,21 @@ const openPhoneMenu = (b = false) => {
           v-for="item in menus"
           :key="item.path"
           class="nav-button"
+          :class="[item.customClass, { 'nav-button-active': isRouteActive(item.path) }]"
           @click="handleToPage(item.path)"
         >
           <span>{{ item.name }}</span>
         </div>
       </nav>
       <div class="btns">
-        <div v-for="(item, index) in appMenus" :key="index">
+        <div v-for="(item, index) in appMenus as any" :key="index">
           <a-dropdown v-if="item.menus && item.conditions" placement="bottom">
-            <div class="nav-button" @click.prevent>
-              <component :is="item.icon"></component>
+            <div
+              :class="item.customClass"
+              class="nav-button right-nav-button flex-center"
+              @click.prevent
+            >
+              <component :is="item.icon" v-if="item.icon"></component>
             </div>
             <template #overlay>
               <a-menu @click="(e: any) => item.click(String(e.key))">
@@ -296,15 +84,23 @@ const openPhoneMenu = (b = false) => {
             <template #title>
               <span>{{ item.title }}</span>
             </template>
-            <div class="nav-button" type="text" @click="(e: any) => item.click(e.key)">
-              <component :is="item.icon"></component>
+            <div
+              :class="item.customClass"
+              class="nav-button right-nav-button flex-center"
+              type="text"
+              @click="(e: any) => item.click(e.key)"
+            >
+              <component :is="item.icon" v-if="item.icon"></component>
+              <span v-if="item?.iconText" class="ml-6" style="font-size: 12px">
+                {{ item?.iconText }}
+              </span>
             </div>
           </a-tooltip>
         </div>
       </div>
     </div>
   </header>
-  <div v-if="!isPhone" style="height: 60px"></div>
+  <div v-if="!isPhone" style="height: 64px"></div>
 
   <!-- Menus for phone -->
   <header v-if="isPhone" class="app-header-content-for-phone">
@@ -367,31 +163,47 @@ const openPhoneMenu = (b = false) => {
         v-for="item in menus"
         :key="item.path"
         class="phone-menu-btn"
+        :class="{ 'phone-menu-btn-active': isRouteActive(item.path) }"
         @click="handleToPage(item.path)"
       >
         {{ item.name }}
       </div>
     </div>
   </a-drawer>
-
-  <div class="breadcrumbs">
-    <a-breadcrumb>
-      <a-breadcrumb-item v-for="item in breadcrumbs" :key="item.title">
-        <a v-if="!item.disabled" :href="item.href">{{ item.title }}</a>
-        <span v-else>{{ item.title }}</span>
-      </a-breadcrumb-item>
-    </a-breadcrumb>
-  </div>
 </template>
 
 <style lang="scss" scoped>
 @import "@/assets/global.scss";
+
+.nav-button-warning:hover {
+  background-color: rgba(255, 193, 7, 0.34) !important;
+}
+
+.nav-button-success:hover {
+  background-color: rgba(64, 156, 216, 0.12) !important;
+}
+
+.nav-button-danger:hover {
+  background-color: #ff19116f !important;
+}
+
+.nav-button-primary:hover {
+  background-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+.nav-button-success:hover {
+  background-color: #48e6635a !important;
+}
 
 .phone-menu {
   .phone-menu-btn {
     padding: 16px 8px;
     border-bottom: 1px solid var(--color-gray-4);
     color: var(--color-gray-12);
+  }
+
+  .phone-menu-btn-active {
+    background-color: rgba(64, 156, 216, 0.12);
   }
 }
 
@@ -418,17 +230,9 @@ const openPhoneMenu = (b = false) => {
   }
 }
 
-.breadcrumbs {
-  font-size: 18px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 0px;
-}
-
 .app-header-wrapper {
   box-shadow: 0 2px 4px 0 var(--card-shadow-color);
-
+  background-image: url("@/assets/side.png");
   width: 100%;
   display: flex;
   justify-content: center;
@@ -443,6 +247,10 @@ const openPhoneMenu = (b = false) => {
   right: 0;
 
   z-index: 20;
+
+  // Smooth height transition
+  transition: height 0.3s ease-in-out;
+
   .app-header-content {
     @extend .global-app-container;
 
@@ -450,7 +258,10 @@ const openPhoneMenu = (b = false) => {
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    height: 60px;
+    height: var(--header-height);
+
+    // Smooth height transition
+    transition: height 0.3s ease-in-out;
 
     .btns {
       display: flex;
@@ -468,17 +279,33 @@ const openPhoneMenu = (b = false) => {
     min-width: 40px;
     cursor: pointer;
     border-radius: 6px;
+    user-select: none;
+  }
+
+  .right-nav-button {
+    margin: 0 2px;
+    font-size: 14px;
+    padding: 8px 8px;
   }
 
   .icon-button {
     font-size: 16px !important;
   }
   .nav-button:hover {
-    background-color: rgba(215, 215, 215, 0.12);
+    background-color: rgba(215, 215, 215, 0.261);
+  }
+
+  .nav-button-active {
+    background-color: rgba(215, 215, 215, 0.35);
   }
 
   .logo {
     cursor: pointer;
+  }
+
+  .pro-mode-order-container {
+    @extend .nav-button;
+    @extend .nav-button-success;
   }
 
   // Sync margin

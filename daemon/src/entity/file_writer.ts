@@ -1,28 +1,26 @@
-import FileManager from "../service/system_file";
-import path from "path";
 import fs from "fs-extra";
-import logger from "../service/log";
+import path from "path";
 import * as lockfile from "proper-lockfile";
+import logger from "../service/log";
+import FileManager from "../service/system_file";
 import uploadManager from "../service/upload_manager";
-import { createHash } from "crypto";
 
 type ChunkRange = { start: number; end: number };
 
 export default class FileWriter {
   readonly path: string;
   id?: string;
-  private releaseLock?: { (): void };
+  private releaseLock?: () => Promise<void>;
   private fd: number | null = null;
   readonly received: ChunkRange[] = [];
   lastUpdate: number = Date.now();
 
   constructor(
-    private cwd: string,
+    public readonly cwd: string,
     private filename: string,
     public readonly size: number,
     private unzip: boolean,
     private zipCode: string,
-    public readonly sum: string,
     filePath: string
   ) {
     if (!FileManager.checkFileName(path.basename(this.filename)))
@@ -40,25 +38,32 @@ export default class FileWriter {
     let tempFileSaveName = basename + ext;
     let counter = 1;
 
-    while (
-      (await fs
-        .access(fileManager.toAbsolutePath(path.normalize(path.join(dir, tempFileSaveName))))
+    const checkFile = async (name: string) => {
+      const absolutePath = fileManager.toAbsolutePath(path.normalize(path.join(dir, name)));
+      const isLock = await lockfile
+        .check(absolutePath)
+        .then((isLock) => isLock)
+        .catch(() => false);
+      const isAccess = await fs
+        .access(absolutePath)
         .then(() => true)
-        .catch(() => false)) &&
-      !(await lockfile.check(
-        fileManager.toAbsolutePath(path.normalize(path.join(dir, tempFileSaveName)))
-      )) &&
-      !overwrite
-    ) {
+        .catch(() => false);
+      return isAccess && !isLock && !overwrite;
+    };
+
+    while (await checkFile(tempFileSaveName)) {
       if (counter == 1) {
         tempFileSaveName = `${basename}-copy${ext}`;
       } else {
         tempFileSaveName = `${basename}-copy-${counter}${ext}`;
       }
       counter++;
+      if (counter > 100) {
+        throw new Error("Access denied: File name already exists!");
+      }
     }
 
-    let fileSaveRelativePath = path.normalize(path.join(dir, tempFileSaveName));
+    const fileSaveRelativePath = path.normalize(path.join(dir, tempFileSaveName));
 
     if (!fileManager.checkPath(fileSaveRelativePath))
       throw new Error("Access denied: Invalid destination");
@@ -77,10 +82,10 @@ export default class FileWriter {
     }
     try {
       this.fd = await fs.open(this.path, "w+");
-      this.releaseLock = lockfile.lockSync(this.path);
+      this.releaseLock = await lockfile.lock(this.path);
       await fs.ftruncate(this.fd, this.size);
     } catch (e) {
-      this.releaseLock!();
+      if (typeof this.releaseLock === "function") await this.releaseLock();
       this.releaseLock = undefined;
       throw e;
     }
@@ -104,24 +109,18 @@ export default class FileWriter {
     if (this.fd != null) {
       await fs.close(this.fd);
       this.fd = null;
-      this.releaseLock!();
+      await this.releaseLock!();
     }
 
     if (this.id != null) {
       uploadManager.delete(this.id);
     }
 
-    if (!(await this.checkSum())) {
-      await fs.remove(this.path);
-      logger.error("File checksum does not match:", this.path);
-      throw new Error("File checksum does not match");
-    }
-
     logger.info("Browser Uploaded File:", this.path);
 
     if (this.unzip) {
       const instanceFiles = new FileManager(this.cwd);
-      await instanceFiles.unzip(this.cwd, ".", this.zipCode);
+      await instanceFiles.unzip(this.path, ".", this.zipCode);
       logger.info("File unzipped:", this.path);
     }
   }
@@ -130,7 +129,7 @@ export default class FileWriter {
     if (this.fd != null) {
       await fs.close(this.fd);
       this.fd = null;
-      this.releaseLock!();
+      await this.releaseLock!();
     }
     if (this.id != null) {
       uploadManager.delete(this.id);
@@ -167,14 +166,16 @@ export default class FileWriter {
     );
   }
 
-  private async checkSum(): Promise<boolean> {
-    let md5 = await new Promise<string>((resolve, reject) => {
-      const hash = createHash("md5");
-      const stream = fs.createReadStream(this.path);
+  private readStreamToHash(
+    filePath: string,
+    hash: any,
+    options?: { start: number; end: number }
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const stream = fs.createReadStream(filePath, options);
       stream.on("data", (chunk) => hash.update(chunk));
-      stream.on("end", () => resolve(hash.digest("hex")));
-      stream.on("error", (err) => reject(err));
+      stream.on("end", resolve);
+      stream.on("error", reject);
     });
-    return md5 == this.sum;
   }
 }

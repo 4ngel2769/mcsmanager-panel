@@ -1,16 +1,16 @@
 import Router from "@koa/router";
+import { ROLE } from "../entity/user";
+import { $t } from "../i18n";
+import { speedLimit } from "../middleware/limit";
 import permission from "../middleware/permission";
 import validator from "../middleware/validator";
-import RemoteServiceSubsystem from "../service/remote_service";
-import RemoteRequest from "../service/remote_command";
-import { timeUuid } from "../service/password";
-import { getUserPermission, getUserUuid } from "../service/passport_service";
-import { isHaveInstanceByUuid, isTopPermissionByUuid } from "../service/permission_service";
-import { systemConfig } from "../setting";
-import { $t } from "../i18n";
-import { ROLE } from "../entity/user";
-import { removeTrail } from "mcsmanager-common";
 import { operationLogger } from "../service/operation_logger";
+import { getUserPermission, getUserUuid } from "../service/passport_service";
+import { timeUuid } from "../service/password";
+import { isHaveInstanceByUuid, isTopPermissionByUuid } from "../service/permission_service";
+import RemoteRequest from "../service/remote_command";
+import RemoteServiceSubsystem from "../service/remote_service";
+import { systemConfig } from "../setting";
 
 const router = new Router({ prefix: "/files" });
 
@@ -33,6 +33,7 @@ router.use(async (ctx, next) => {
 
 router.get(
   "/status",
+  speedLimit(0.1),
   permission({ level: ROLE.USER, speedLimit: false }),
   validator({
     query: { daemonId: String, uuid: String }
@@ -55,6 +56,7 @@ router.get(
 
 router.get(
   "/list",
+  speedLimit(0.1),
   permission({ level: ROLE.USER, speedLimit: false }),
   validator({
     query: { daemonId: String, uuid: String, target: String, page: Number, page_size: Number }
@@ -64,8 +66,8 @@ router.get(
       const target = String(ctx.query.target);
       const daemonId = String(ctx.query.daemonId);
       const instanceUuid = String(ctx.query.uuid);
-      const page = Number(ctx.query.page);
-      const pageSize = Number(ctx.query.page_size);
+      const page = Math.max(0, Number(ctx.query.page) || 0);
+      const pageSize = Math.min(100, Math.max(1, Number(ctx.query.page_size) || 10));
       const fileName = String(ctx.query.file_name);
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
       const result = await new RemoteRequest(remoteService).request("file/list", {
@@ -85,6 +87,7 @@ router.get(
 router.put(
   "/chmod",
   permission({ level: ROLE.USER }),
+  speedLimit(3),
   validator({
     query: { daemonId: String, uuid: String },
     body: { target: String, chmod: Number, deep: Boolean }
@@ -95,7 +98,7 @@ router.put(
       const instanceUuid = String(ctx.query.uuid);
       const target = String(ctx.request.body.target);
       const chmod = Number(ctx.request.body.chmod);
-      const deep = Number(ctx.request.body.deep);
+      const deep = Boolean(ctx.request.body.deep);
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
       const result = await new RemoteRequest(remoteService).request("file/chmod", {
         target,
@@ -110,9 +113,40 @@ router.put(
   }
 );
 
+router.put(
+  "/chmod_batch",
+  permission({ level: ROLE.USER }),
+  speedLimit(3),
+  validator({
+    query: { daemonId: String, uuid: String },
+    body: { targets: Array, chmod: Number, deep: Boolean }
+  }),
+  async (ctx) => {
+    try {
+      const daemonId = String(ctx.query.daemonId);
+      const instanceUuid = String(ctx.query.uuid);
+      const targets = (ctx.request.body.targets as string[]).map((target) => String(target));
+      const chmod = Number(ctx.request.body.chmod);
+      const deep = Boolean(ctx.request.body.deep);
+      const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
+      const timeout = Math.min(5 * 60 * 1000, Math.max(15 * 1000, targets.length * 2 * 1000));
+      const result = await new RemoteRequest(remoteService).request("file/chmod_batch", {
+        targets,
+        instanceUuid,
+        chmod,
+        deep
+      }, timeout);
+      ctx.body = result;
+    } catch (err) {
+      ctx.body = err;
+    }
+  }
+);
+
 router.post(
   "/touch",
   permission({ level: ROLE.USER }),
+  speedLimit(3),
   validator({ query: { daemonId: String, uuid: String }, body: { target: String } }),
   async (ctx) => {
     try {
@@ -134,6 +168,7 @@ router.post(
 router.post(
   "/mkdir",
   permission({ level: ROLE.USER }),
+  speedLimit(3),
   validator({ query: { daemonId: String, uuid: String }, body: { target: String } }),
   async (ctx) => {
     try {
@@ -154,6 +189,7 @@ router.post(
 
 router.put(
   "/",
+  speedLimit(1),
   permission({ level: ROLE.USER }),
   validator({ query: { daemonId: String, uuid: String }, body: { target: String } }),
   async (ctx) => {
@@ -189,6 +225,7 @@ router.put(
 router.post(
   "/copy",
   permission({ level: ROLE.USER }),
+  speedLimit(3),
   validator({ query: { daemonId: String, uuid: String }, body: { targets: Array } }),
   async (ctx) => {
     try {
@@ -207,8 +244,50 @@ router.post(
   }
 );
 
+router.post(
+  "/download_from_url",
+  permission({ level: ROLE.USER }),
+  speedLimit(3),
+  validator({
+    query: { uuid: String, daemonId: String },
+    body: { url: String, file_name: String }
+  }),
+  async (ctx) => {
+    try {
+      const daemonId = String(ctx.query.daemonId);
+      const instanceUuid = String(ctx.query.uuid);
+      const url = String(ctx.request.body.url);
+      const fileName = String(ctx.request.body.file_name);
+
+      const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
+      if (!remoteService) throw new Error($t("TXT_CODE_dd559000") + ` Daemon ID: ${daemonId}`);
+
+      const downloadId = timeUuid();
+      ctx.body = downloadId;
+
+      operationLogger.log("instance_file_download_from_url", {
+        operator_ip: ctx.ip,
+        operator_name: ctx.session?.["userName"],
+        instance_id: instanceUuid,
+        daemon_id: daemonId,
+        url: url,
+        fileName: fileName
+      });
+
+      await new RemoteRequest(remoteService).request("file/download_from_url", {
+        url,
+        fileName,
+        instanceUuid
+      });
+    } catch (err) {
+      ctx.body = err;
+    }
+  }
+);
+
 router.put(
   "/move",
+  speedLimit(3),
   permission({ level: ROLE.USER }),
   validator({ query: { daemonId: String, uuid: String }, body: { targets: Array } }),
   async (ctx) => {
@@ -230,6 +309,7 @@ router.put(
 
 router.delete(
   "/",
+  speedLimit(3),
   permission({ level: ROLE.USER }),
   validator({ query: { daemonId: String, uuid: String }, body: { targets: Object } }),
   async (ctx) => {
@@ -258,6 +338,7 @@ router.delete(
 
 router.post(
   "/compress",
+  speedLimit(3),
   permission({ level: ROLE.USER }),
   validator({
     query: { daemonId: String, uuid: String },
@@ -293,6 +374,7 @@ router.post(
 router.all(
   "/download",
   permission({ level: ROLE.USER }),
+  speedLimit(3),
   validator({ query: { uuid: String, daemonId: String, file_name: String } }),
   async (ctx) => {
     try {
@@ -300,9 +382,9 @@ router.all(
       const instanceUuid = String(ctx.query.uuid);
       const fileName = String(ctx.query.file_name);
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
-      const addr = `${remoteService?.config.ip}:${remoteService?.config.port}${
-        remoteService?.config.prefix ? removeTrail(remoteService.config.prefix, "/") : ""
-      }`;
+      if (!remoteService) throw new Error($t("TXT_CODE_dd559000") + ` Daemon ID: ${daemonId}`);
+      const addr = remoteService.config.fullAddr;
+      const remoteMappings = remoteService.config.getConvertedRemoteMappings();
       const password = timeUuid();
       await new RemoteRequest(remoteService).request("passport/register", {
         name: "download",
@@ -321,7 +403,8 @@ router.all(
       });
       ctx.body = {
         password,
-        addr
+        addr,
+        remoteMappings
       };
     } catch (err) {
       ctx.body = err;
@@ -339,9 +422,9 @@ router.all(
       const instanceUuid = String(ctx.query.uuid);
       const uploadDir = String(ctx.query.upload_dir);
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
-      const addr = `${remoteService?.config.ip}:${remoteService?.config.port}${
-        remoteService?.config.prefix ? removeTrail(remoteService.config.prefix, "/") : ""
-      }`;
+      if (!remoteService) throw new Error($t("TXT_CODE_dd559000") + ` Daemon ID: ${daemonId}`);
+      const addr = remoteService.config.fullAddr;
+      const remoteMappings = remoteService.config.getConvertedRemoteMappings();
       const password = timeUuid();
       await new RemoteRequest(remoteService).request("passport/register", {
         name: "upload",
@@ -359,7 +442,8 @@ router.all(
       });
       ctx.body = {
         password,
-        addr
+        addr,
+        remoteMappings
       };
     } catch (err) {
       ctx.body = err;

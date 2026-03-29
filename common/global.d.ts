@@ -12,12 +12,13 @@ declare global {
     tag: string[];
     endTime: number;
     fileCode: string;
-    processType: string;
+    processType: ProcessType;
     updateCommand: string;
     runAs: string;
     actionCommandList: any[];
     crlf: number;
     category: number;
+    basePort: number;
 
     // Steam RCON
     enableRcon?: boolean;
@@ -25,14 +26,20 @@ declare global {
     rconPort?: number;
     rconIp?: string;
 
+    // Java
+    java: IInstanceJavaConfig;
+
     // Old fields
     terminalOption: {
       haveColor: boolean;
       pty: boolean;
+      ptyWindowCol: number;
+      ptyWindowRow: number;
     };
     eventTask: {
       autoStart: boolean;
       autoRestart: boolean;
+      autoRestartMaxTimes: number;
       ignore: boolean;
     };
     docker: IGlobalInstanceDockerConfig;
@@ -47,7 +54,28 @@ declare global {
     };
   }
 
+  type ProcessType = "general" | "docker";
+
+  interface IInstanceJavaConfig {
+    id: string;
+  }
+
+  interface IJavaInfo {
+    fullname: string;
+    path?: string;
+    installTime: number;
+    downloading: boolean;
+  }
+
+  interface IJavaRuntime {
+    info: IJavaInfo;
+    path: string;
+    usingInstances: string[];
+  }
+
   interface IGlobalInstanceDockerConfig {
+    /** Docker image for update command; empty = not used */
+    updateCommandImage?: string;
     containerName?: string;
     image?: string;
     memory?: number;
@@ -63,12 +91,44 @@ declare global {
     workingDir?: string;
     env?: string[];
     changeWorkdir?: boolean;
+    memorySwap?: number;
+    memorySwappiness?: number;
+    labels?: string[];
+    capAdd?: string[];
+    capDrop?: string[];
+    devices?: string[];
+    privileged?: boolean;
+    /** Upload speed limit in KB/s */
+    uploadSpeedLimit?: number;
+    /** Download speed limit in KB/s */
+    downloadSpeedLimit?: number;
+    /** Whether to enable GPU passthrough */
+    gpuEnabled?: boolean;
+    /** GPU count: -1 = all GPUs, 0 = none, positive integer = specific count */
+    gpuCount?: number;
+    /** Specific GPU device IDs, e.g. ["0","1"] or ["GPU-xxxx"]. Mutually exclusive with gpuCount */
+    gpuDeviceIds?: string[];
+    /** GPU driver name, default "nvidia" */
+    gpuDriver?: string;
   }
 
   interface IPanelResponseProtocol {
     data: any;
     timestamp: number;
     status: number;
+  }
+
+  interface IPanelOverviewRemoteMappingResponse {
+    from: {
+      ip: string;
+      port: number;
+      prefix: string;
+    };
+    to: {
+      ip: string;
+      port: number;
+      prefix: string;
+    };
   }
 
   interface IPanelOverviewRemoteResponse {
@@ -105,8 +165,24 @@ declare global {
     ip: string;
     port: number;
     prefix: string;
+    remoteMappings: IPanelOverviewRemoteMappingResponse[];
     available: boolean;
     remarks: string;
+    config: {
+      language: string;
+      uploadSpeedRate: number;
+      downloadSpeedRate: number;
+      maxDownloadFromUrlFileCount: number;
+      portRangeStart: number;
+      portRangeEnd: number;
+      portAssignInterval: number;
+      port: number;
+      outputBufferSize: number;
+      enableSoftShutdown: boolean;
+      softShutdownSkipDocker: boolean;
+      softShutdownWaitSeconds: number;
+    };
+    dockerPlatforms?: string[];
   }
 
   interface IPanelOverviewResponse {
@@ -161,7 +237,11 @@ declare global {
     page: string;
     items: ILayoutCard[];
     theme?: {
+      pageTitle: string;
+      logoImage: string;
       backgroundImage: string;
+      /** Main app navigation: "left" = sidebar, "right" = top header only */
+      sidebarPosition?: "left" | "right";
     };
   }
 
@@ -199,17 +279,37 @@ declare global {
     remark: string;
     targetLink?: string;
     author: string;
-    setupInfo?: IJsonData;
+    dockerOptional?: {
+      image: string;
+      updateCommandImage?: string;
+    };
+    setupInfo: IGlobalInstanceConfig;
     gameType: string;
+    image: string;
+    platform: string;
+    tags?: string[];
+    isSummary?: boolean;
+    key?: string;
   }
 
   interface IQuickStartTemplate {
-    name: string;
     languages: {
       label: string;
       value: string;
     }[];
     packages: IQuickStartPackages[];
+  }
+
+  export interface IBusinessProductInfo {
+    productId: number;
+    title: string;
+    price: number;
+    ispId: number;
+    daemonId: string;
+    payload?: string;
+    remark?: string;
+    hours?: number;
+    daemonUuid?: string;
   }
 }
 

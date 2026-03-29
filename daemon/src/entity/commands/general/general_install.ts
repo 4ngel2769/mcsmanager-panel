@@ -1,11 +1,11 @@
+import fs from "fs-extra";
 import { $t } from "../../../i18n";
+import { QuickInstallTask } from "../../../service/async_task_service/quick_install";
 import Instance from "../../instance/instance";
 import InstanceCommand from "../base/command";
-import fs from "fs-extra";
-import { QuickInstallTask } from "../../../service/async_task_service/quick_install";
 
 export default class GeneralInstallCommand extends InstanceCommand {
-  private process?: QuickInstallTask;
+  private installTask?: QuickInstallTask;
 
   constructor() {
     super("GeneralInstallCommand");
@@ -32,18 +32,29 @@ export default class GeneralInstallCommand extends InstanceCommand {
         await fs.mkdirs(instance.absoluteCwdPath());
       }
       instance.println($t("TXT_CODE_1704ea49"), $t("TXT_CODE_906c5d6a"));
-      this.process = new QuickInstallTask(
+
+      if (params.dockerOptional && instance.config.processType === "docker") {
+        params.setupInfo.docker = {
+          ...params.setupInfo.docker,
+          ...params.dockerOptional
+        };
+        params.setupInfo.processType = "docker";
+      }
+
+      // The "params" configuration has already been checked in router.post("/install_instance")
+      // Ensure that there is no user-customized parameter injection
+      // panel/src/app/routers/instance_operate_router.ts
+      this.installTask = new QuickInstallTask(
         instance.config.nickname,
         params.targetLink,
         params.setupInfo,
         instance
       );
+
       instance.asynchronousTask = this;
       instance.println($t("TXT_CODE_1704ea49"), $t("TXT_CODE_b9ca022b"));
-      await this.process.start();
-      await this.process.wait();
-
-      instance.println($t("TXT_CODE_1704ea49"), $t("TXT_CODE_f220ed78"));
+      await this.installTask?.start();
+      await this.installTask?.wait();
     } catch (err: any) {
       instance.println(
         $t("TXT_CODE_general_update.update"),
@@ -60,6 +71,7 @@ export default class GeneralInstallCommand extends InstanceCommand {
       $t("TXT_CODE_general_update.killProcess")
     );
     this.stopped(instance);
-    await this.process?.stop();
+    await this.installTask?.stop();
+    this.installTask = undefined;
   }
 }

@@ -1,30 +1,20 @@
-import { $t } from "../i18n";
-import fs from "fs-extra";
-import path from "path";
-import os from "os";
-import Instance from "../entity/instance/instance";
 import EventEmitter from "events";
-import logger from "./log";
-import { v4 } from "uuid";
+import fs from "fs-extra";
+import { InstanceStreamListener, QueryMapWrapper } from "mcsmanager-common";
+import os from "os";
+import path from "path";
 import { Socket } from "socket.io";
+import { v4 } from "uuid";
 import StorageSubsystem from "../common/system_storage";
-import InstanceConfig from "../entity/instance/Instance_config";
-import { QueryMapWrapper, InstanceStreamListener } from "mcsmanager-common";
 import FunctionDispatcher from "../entity/commands/dispatcher";
-import InstanceControl from "./system_instance_control";
 import { globalConfiguration } from "../entity/config";
+import Instance from "../entity/instance/instance";
+import InstanceConfig from "../entity/instance/Instance_config";
+import { $t } from "../i18n";
+import { sleep } from "../utils/sleep";
+import logger from "./log";
+import InstanceControl from "./system_instance_control";
 import takeoverContainer from "./takeover_container";
-
-// init instance default install path
-globalConfiguration.load();
-let INSTANCE_DATA_DIR = path.join(process.cwd(), "data/InstanceData");
-if (globalConfiguration.config.defaultInstancePath) {
-  INSTANCE_DATA_DIR = path.normalize(globalConfiguration.config.defaultInstancePath);
-}
-
-if (!fs.existsSync(INSTANCE_DATA_DIR)) {
-  fs.mkdirsSync(INSTANCE_DATA_DIR);
-}
 
 class InstanceSubsystem extends EventEmitter {
   public readonly GLOBAL_INSTANCE = "__MCSM_GLOBAL_INSTANCE__";
@@ -34,38 +24,51 @@ class InstanceSubsystem extends EventEmitter {
 
   public readonly instances = new Map<string, Instance>();
   public readonly instanceStream = new InstanceStreamListener();
+  private instanceDataDir = "";
 
   constructor() {
     super();
+    // init instance default install path
+    globalConfiguration.load();
+    let instanceDataDir = path.join(process.cwd(), "data/InstanceData");
+    if (globalConfiguration.config.defaultInstancePath) {
+      instanceDataDir = path.normalize(globalConfiguration.config.defaultInstancePath);
+    }
+    if (!fs.existsSync(instanceDataDir)) fs.mkdirsSync(instanceDataDir);
+    this.instanceDataDir = path.normalize(instanceDataDir);
+  }
+
+  public getInstanceDataDir() {
+    return this.instanceDataDir;
   }
 
   // start automatically at boot
-  private autoStart() {
-    this.instances.forEach((instance) => {
+  private async autoStart() {
+    await sleep(1000 * 5);
+    for (const instance of this.instances.values()) {
       if (instance.config.eventTask.autoStart && instance.status() == Instance.STATUS_STOP) {
-        setTimeout(() => {
-          instance
-            .execPreset("start")
-            .then(() => {
-              logger.info(
-                $t("TXT_CODE_system_instance.autoStart", {
-                  name: instance.config.nickname,
-                  uuid: instance.instanceUuid
-                })
-              );
-            })
-            .catch((reason) => {
-              logger.error(
-                $t("TXT_CODE_system_instance.autoStartErr", {
-                  name: instance.config.nickname,
-                  uuid: instance.instanceUuid,
-                  reason: reason
-                })
-              );
-            });
-        }, 1000 * 10);
+        instance
+          .execPreset("start")
+          .then(() => {
+            logger.info(
+              $t("TXT_CODE_system_instance.autoStart", {
+                name: instance.config.nickname,
+                uuid: instance.instanceUuid
+              })
+            );
+          })
+          .catch((reason) => {
+            logger.error(
+              $t("TXT_CODE_system_instance.autoStartErr", {
+                name: instance.config.nickname,
+                uuid: instance.instanceUuid,
+                reason: reason
+              })
+            );
+          });
+        await sleep(1000 * 5);
       }
-    });
+    }
   }
 
   // init all instances from local files
@@ -77,7 +80,6 @@ class InstanceSubsystem extends EventEmitter {
         const instanceConfig = StorageSubsystem.load("InstanceConfig", InstanceConfig, uuid);
         const instance = new Instance(uuid, instanceConfig);
 
-        // Fix BUG, reset state
         instanceConfig.eventTask.ignore = false;
 
         // All instances are all function schedulers
@@ -153,7 +155,7 @@ class InstanceSubsystem extends EventEmitter {
     const instance = new Instance(newUuid, new InstanceConfig());
     // Instance working directory verification and automatic creation
     if (!cfg.cwd || cfg.cwd === ".") {
-      cfg.cwd = path.normalize(`${INSTANCE_DATA_DIR}/${instance.instanceUuid}`);
+      cfg.cwd = path.normalize(`${this.instanceDataDir}/${instance.instanceUuid}`);
     }
     if (!fs.existsSync(cfg.cwd)) fs.mkdirsSync(cfg.cwd);
     // Set the default input and output encoding
@@ -255,26 +257,111 @@ class InstanceSubsystem extends EventEmitter {
     return this.instances.has(instanceUuid);
   }
 
-  async exit() {
-    let promises = [];
-    for (const iterator of this.instances) {
-      const instance = iterator[1];
-      if (instance.status() != Instance.STATUS_STOP) {
-        logger.info(
-          `Instance ${instance.config.nickname} (${instance.instanceUuid}) is running or busy, and is being forced to end.`
-        );
-        promises.push(
-          instance.execPreset("kill").then(() => {
-            if (!this.isGlobalInstance(instance))
-              StorageSubsystem.store("InstanceConfig", instance.instanceUuid, instance.config);
-            logger.info(
-              `Instance ${instance.config.nickname} (${instance.instanceUuid}) saved successfully.`
-            );
-          })
-        );
+  async exitInstance(instance: Instance, force = true) {
+    if (!this.isGlobalInstance(instance))
+      StorageSubsystem.store("InstanceConfig", instance.instanceUuid, instance.config);
+    if (instance.status() === Instance.STATUS_BUSY) {
+      logger.info(`Killing ${instance.config.nickname} (${instance.instanceUuid})...`);
+      await instance.execPreset("kill");
+    } else if (instance.status() !== Instance.STATUS_STOP) {
+      if (force) {
+        logger.info(`Force stopping ${instance.config.nickname} (${instance.instanceUuid})...`);
+        await instance.execPreset("kill");
+      } else {
+        logger.info(`Stopping ${instance.config.nickname} (${instance.instanceUuid})...`);
+        // BUG: Error: write EPIPE
+        await instance.execPreset("stop");
       }
     }
-    await Promise.all(promises);
+  }
+
+  exit(force = false) {
+    const promises: Promise<void>[] = [];
+    for (const iterator of this.instances) {
+      const instance = iterator[1];
+      if (instance.status() !== Instance.STATUS_STOP) {
+        promises.push(this.exitInstance(instance, force));
+      }
+    }
+    Promise.all(promises);
+
+    return new Promise<void>((resolve) => {
+      let checkCount = 0;
+      const checkTask = setInterval(() => {
+        let count = 0;
+        checkCount++;
+        for (const [_, instance] of this.instances) {
+          if (instance.status() !== Instance.STATUS_STOP) {
+            count++;
+            if (checkCount > 10) {
+              logger.info(
+                $t("TXT_CODE_eadac3c2", {
+                  instance: instance.config.nickname
+                })
+              );
+              this.exitInstance(instance, true);
+            }
+          }
+        }
+        if (count === 0) {
+          logger.info($t("TXT_CODE_187bb567"));
+          clearInterval(checkTask);
+          resolve();
+        } else {
+          logger.info($t("TXT_CODE_6f23ce93", { count }));
+        }
+      }, 1000);
+    });
+  }
+
+  // Soft exit: optional docker skip and configurable wait timeout
+  softExit(skipDocker = true, waitSeconds = 10) {
+    const promises: Promise<void>[] = [];
+    for (const iterator of this.instances) {
+      const instance = iterator[1];
+      if (instance.status() !== Instance.STATUS_STOP) {
+        if (skipDocker && instance.config.processType === "docker") {
+          logger.info(
+            `Skipping Docker instance ${instance.config.nickname} (${instance.instanceUuid}) during soft shutdown...`
+          );
+          continue;
+        } else {
+          // Soft close general instances (don't force kill)
+          promises.push(this.exitInstance(instance, false));
+        }
+      }
+    }
+    Promise.all(promises);
+
+    return new Promise<void>((resolve) => {
+      let checkCount = 0;
+      const checkTask = setInterval(() => {
+        let count = 0;
+        checkCount++;
+        for (const [_, instance] of this.instances) {
+          if (instance.status() !== Instance.STATUS_STOP) {
+            if (skipDocker && instance.config.processType === "docker") continue;
+            count++;
+            if (checkCount > waitSeconds) {
+              logger.info(
+                $t("TXT_CODE_eadac3c2", {
+                  instance: instance.config.nickname
+                })
+              );
+              // If it takes too long, force close target instances
+              this.exitInstance(instance, true);
+            }
+          }
+        }
+        if (count === 0) {
+          logger.info($t("TXT_CODE_187bb567"));
+          clearInterval(checkTask);
+          resolve();
+        } else {
+          logger.info($t("TXT_CODE_6f23ce93", { count }));
+        }
+      }, 1000);
+    });
   }
 
   getInstances() {

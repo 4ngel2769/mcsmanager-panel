@@ -1,21 +1,21 @@
-import { $t } from "../../../i18n";
-import os from "os";
-import Instance from "../../instance/instance";
-import logger from "../../../service/log";
+import { ChildProcess, ChildProcessWithoutNullStreams, spawn } from "child_process";
+import EventEmitter from "events";
 import fs from "fs-extra";
+import { killProcess } from "mcsmanager-common";
+import os from "os";
 import path from "path";
 import readline from "readline";
-import EventEmitter from "events";
-import { IInstanceProcess } from "../../instance/interface";
-import { ChildProcess, ChildProcessWithoutNullStreams, exec, spawn } from "child_process";
-import { commandStringToArray } from "../base/command_parser";
-import { killProcess } from "mcsmanager-common";
-import FunctionDispatcher from "../dispatcher";
-import { PTY_PATH } from "../../../const";
 import { Writable } from "stream";
 import { v4 } from "uuid";
-import AbsStartCommand from "../start";
+import { PTY_PATH } from "../../../const";
+import { $t } from "../../../i18n";
+import logger from "../../../service/log";
 import { getRunAsUserParams } from "../../../tools/system_user";
+import Instance from "../../instance/instance";
+import { IInstanceProcess } from "../../instance/interface";
+import { commandStringToArray } from "../base/command_parser";
+import FunctionDispatcher from "../dispatcher";
+import AbsStartCommand from "../start";
 
 interface IPtySubProcessCfg {
   pid: number;
@@ -45,7 +45,9 @@ export class GoPtyProcessAdapter extends EventEmitter implements IInstanceProces
     process.stdout?.on("data", (text) => this.emit("data", text));
     process.stderr?.on("data", (text) => this.emit("data", text));
     process.on("exit", (code) => this.emit("exit", code));
-    this.initNamedPipe();
+    setTimeout(() => {
+      this.initNamedPipe();
+    }, 1000);
   }
 
   private async initNamedPipe() {
@@ -59,11 +61,7 @@ export class GoPtyProcessAdapter extends EventEmitter implements IInstanceProces
       });
       this.pipeClient = writePipe;
     } catch (error) {
-      throw new Error(
-        $t("TXT_CODE_9d1d244f", {
-          pipeName: error
-        })
-      );
+      logger.warn("Start PTY Pipe error, This maybe is not a bug:", this.pipeName, error);
     }
   }
 
@@ -143,12 +141,11 @@ export default class PtyStartCommand extends AbsStartCommand {
   }
 
   async createProcess(instance: Instance) {
-    if (
-      !instance.config.startCommand ||
-      !instance.hasCwdPath() ||
-      !instance.config.ie ||
-      !instance.config.oe
-    )
+    if (!instance.config.ie || !instance.config.oe) {
+      instance.config.ie = "utf-8";
+      instance.config.oe = "utf-8";
+    }
+    if (!instance.config.startCommand || !instance.hasCwdPath())
       throw new StartupError($t("TXT_CODE_pty_start.cmdErr"));
     if (!fs.existsSync(instance.absoluteCwdPath())) fs.mkdirpSync(instance.absoluteCwdPath());
     if (!path.isAbsolute(path.normalize(instance.absoluteCwdPath())))
@@ -170,17 +167,15 @@ export default class PtyStartCommand extends AbsStartCommand {
       return;
     }
 
-    // Set the startup state & increase the number of startups
-    instance.status(Instance.STATUS_STARTING);
-    instance.startCount++;
-
     // command parsing
     let commandList: string[] = [];
+    const tmpStarCmd = await instance.parseTextParams(instance.config.startCommand);
     if (os.platform() === "win32") {
-      // windows: cmd.exe  /c {{startCommand}}
-      commandList = [instance.config.startCommand];
+      // windows: cmd.exe /c {{startCommand}}
+      commandList = [tmpStarCmd];
     } else {
-      commandList = commandStringToArray(instance.config.startCommand);
+      // other
+      commandList = commandStringToArray(tmpStarCmd);
     }
 
     if (commandList.length === 0)
@@ -221,11 +216,10 @@ export default class PtyStartCommand extends AbsStartCommand {
     logger.info("----------------");
 
     if (runAsConfig.isEnableRunAs) {
-      instance.println(
-        "INFO",
-        $t("TXT_CODE_ba09da46", { name: runAsConfig.runAsName })
-      );
+      instance.println("INFO", $t("TXT_CODE_ba09da46", { name: runAsConfig.runAsName }));
     }
+
+    instance.println("INFO", "> " + commandList.join(" "));
 
     // create pty child process
     const subProcess = spawn(PTY_PATH, ptyParameter, {
@@ -233,13 +227,7 @@ export default class PtyStartCommand extends AbsStartCommand {
       cwd: path.dirname(PTY_PATH),
       stdio: "pipe",
       windowsHide: true,
-      env: {
-        ...process.env,
-        // Set important environment variables for the target user
-        USER: runAsConfig.runAsName,
-        HOME: `/home/${runAsConfig.runAsName}`,
-        LOGNAME: runAsConfig.runAsName
-      },
+      env: instance.generateEnv(),
       // Do not detach the child process;
       // otherwise, an abnormal exit of the parent process may cause the child process to continue running,
       // leading to an abnormal instance state.
@@ -251,7 +239,7 @@ export default class PtyStartCommand extends AbsStartCommand {
       instance.println(
         "ERROR",
         $t("TXT_CODE_pty_start.pidErr", {
-          startCommand: instance.config.startCommand,
+          startCommand: commandList.join(" "),
           path: PTY_PATH,
           params: JSON.stringify(ptyParameter)
         })
@@ -267,7 +255,7 @@ export default class PtyStartCommand extends AbsStartCommand {
       instance.println(
         "ERROR",
         $t("TXT_CODE_pty_start.pidErr", {
-          startCommand: instance.config.startCommand,
+          startCommand: commandList.join(" "),
           path: PTY_PATH,
           params: JSON.stringify(ptyParameter)
         })
@@ -284,6 +272,6 @@ export default class PtyStartCommand extends AbsStartCommand {
         pid: ptySubProcessCfg.pid
       })
     );
-    instance.println("INFO", $t("TXT_CODE_pty_start.startEmulatedTerminal"));
+    instance.println("INFO", $t("TXT_CODE_b50ffba8"));
   }
 }
